@@ -7,45 +7,39 @@ local LocalPlayer = Players.LocalPlayer
 
 -- Maximum Client-Side Network Ownership Power for Delta
 local function setupNetworkOwnership()
-    -- Delta compatibility for UNC hidden properties
     local sethidden = sethiddenproperty or set_hidden_property or set_hidden_prop or function() end
-    local setsim = setsimulationradius or set_simulation_radius or function(rad) pcall(function() sethidden(LocalPlayer, "SimulationRadius", rad) end) end
+    local setsim = setsimulationradius or set_simulation_radius or function() end
 
     pcall(function()
         settings().Physics.AllowSleep = false
         settings().Physics.PhysicsEnvironmentalThrottle = Enum.EnviromentalPhysicsThrottle.Disabled
     end)
 
-    -- Delta-specific maximums (forces replication to server for all players to see)
-    local maxRadius = 9e9
-    pcall(function() setsim(maxRadius, maxRadius) end)
-    pcall(function() sethidden(LocalPlayer, "SimulationRadius", maxRadius) end)
-    pcall(function() sethidden(LocalPlayer, "MaxSimulationRadius", maxRadius) end)
-    pcall(function() LocalPlayer.MaximumSimulationRadius = maxRadius end)
-    pcall(function() LocalPlayer.SimulationRadius = maxRadius end)
+    pcall(function() setsim(math.huge, math.huge) end)
+    pcall(function() sethidden(LocalPlayer, "SimulationRadius", math.huge) end)
+    pcall(function() sethidden(LocalPlayer, "MaxSimulationRadius", math.huge) end)
+    pcall(function() sethidden(LocalPlayer, "MaximumSimulationRadius", math.huge) end)
+    pcall(function() LocalPlayer.MaximumSimulationRadius = math.huge end)
+    pcall(function() LocalPlayer.SimulationRadius = math.huge end)
 end
 
-RunService.RenderStepped:Connect(setupNetworkOwnership)
 RunService.Stepped:Connect(setupNetworkOwnership)
 RunService.Heartbeat:Connect(setupNetworkOwnership)
 
 local function isConnected(npc)
     local hrp = npc:FindFirstChild("HumanoidRootPart")
-    local hum = npc:FindFirstChild("Humanoid")
-    if not hrp or not hum or hum.Health <= 0 then return false end
+    if not hrp then return false end
 
-    -- 1. Delta / UNC isnetworkowner check (Most Accurate & Smooth)
-    if type(isnetworkowner) == "function" then
+    local hasOwnerFunc = type(isnetworkowner) == "function"
+    if hasOwnerFunc then
         local success, res = pcall(isnetworkowner, hrp)
         if success then return res == true or res == LocalPlayer end
     end
 
-    -- 2. ReceiveAge Fallback
     local success, age = pcall(function() return hrp.ReceiveAge end)
     if success and age == 0 and not hrp.Anchored then
         return true
     end
-
     return false
 end
 
@@ -88,35 +82,49 @@ function CloneRecovery.IsCloneConnected(npc)
     return isConnected(npc)
 end
 
+function CloneRecovery.RefreshCloneReferences(npc)
+    local hum = npc:FindFirstChild("Humanoid")
+    local hrp = npc:FindFirstChild("HumanoidRootPart")
+    return hum, hrp
+end
+
+function CloneRecovery.MoveToCloneForRecovery(npc)
+    local myChar = LocalPlayer.Character
+    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    local hum, hrp = CloneRecovery.RefreshCloneReferences(npc)
+    if myRoot and hrp then
+        local oldCFrame = myRoot.CFrame
+        myRoot.CFrame = hrp.CFrame
+        return oldCFrame
+    end
+    return nil
+end
+
+function CloneRecovery.RestoreOriginalPosition(oldCFrame)
+    local myChar = LocalPlayer.Character
+    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    if myRoot and oldCFrame then
+        myRoot.CFrame = oldCFrame
+        myRoot.AssemblyLinearVelocity = Vector3.zero
+    end
+end
+
 function CloneRecovery.RecoverClone(npc)
     if CloneRecovery.IsCloneConnected(npc) then return true end
     
-    -- Phase 1: Silent Executor Override (No Lag, best for Delta)
+    local oldPos = CloneRecovery.MoveToCloneForRecovery(npc)
+    task.wait(0.15)
     forceConnect(npc)
-    if CloneRecovery.IsCloneConnected(npc) then return true end
     
-    -- Phase 2: Proximity Override (With Camera Lock to prevent mobile screen glitching)
-    local myChar = LocalPlayer.Character
-    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
-    local hrp = npc:FindFirstChild("HumanoidRootPart")
-    
-    if myRoot and hrp then
-        local cam = workspace.CurrentCamera
-        local oldCamType = cam.CameraType
-        local oldCamCF = cam.CFrame
-        local oldPos = myRoot.CFrame
-        
-        -- Freeze camera for smoothness (prevents the screen glitch)
-        cam.CameraType = Enum.CameraType.Scriptable
-        cam.CFrame = oldCamCF
-        
-        -- Swiftly move to clone, claim, and return
-        myRoot.CFrame = hrp.CFrame
-        task.wait(0.05)
+    local attempts = 0
+    while not CloneRecovery.IsCloneConnected(npc) and attempts < 10 do
+        attempts = attempts + 1
         forceConnect(npc)
-        
-        myRoot.CFrame = oldPos
-        cam.CameraType = oldCamType
+        task.wait(0.1)
+    end
+    
+    if oldPos then
+        CloneRecovery.RestoreOriginalPosition(oldPos)
     end
     
     return CloneRecovery.IsCloneConnected(npc)
