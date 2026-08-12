@@ -34,6 +34,13 @@ local function isConnected(npc)
     local hum = npc:FindFirstChild("Humanoid")
     if not hrp or not hum or hum.Health <= 0 then return false end
 
+    -- 1. Delta / UNC isnetworkowner check (Most Accurate & Smooth)
+    if type(isnetworkowner) == "function" then
+        local success, res = pcall(isnetworkowner, hrp)
+        if success then return res == true or res == LocalPlayer end
+    end
+
+    -- 2. ReceiveAge Fallback
     local success, age = pcall(function() return hrp.ReceiveAge end)
     if success and age == 0 and not hrp.Anchored then
         return true
@@ -70,6 +77,67 @@ local function forceConnect(npc)
     pcall(function()
         hrp.AssemblyLinearVelocity = hrp.AssemblyLinearVelocity + Vector3.new(0, 0.05, 0)
     end)
+end
+
+-- ==========================================
+-- ADVANCED CLONE RECOVERY SYSTEM (SMOOTH/ANTI-LAG)
+-- ==========================================
+local CloneRecovery = {}
+
+function CloneRecovery.IsCloneConnected(npc)
+    return isConnected(npc)
+end
+
+function CloneRecovery.RecoverClone(npc)
+    if CloneRecovery.IsCloneConnected(npc) then return true end
+    
+    -- Phase 1: Silent Executor Override (No Lag, best for Delta)
+    forceConnect(npc)
+    if CloneRecovery.IsCloneConnected(npc) then return true end
+    
+    -- Phase 2: Proximity Override (With Camera Lock to prevent mobile screen glitching)
+    local myChar = LocalPlayer.Character
+    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    local hrp = npc:FindFirstChild("HumanoidRootPart")
+    
+    if myRoot and hrp then
+        local cam = workspace.CurrentCamera
+        local oldCamType = cam.CameraType
+        local oldCamCF = cam.CFrame
+        local oldPos = myRoot.CFrame
+        
+        -- Freeze camera for smoothness (prevents the screen glitch)
+        cam.CameraType = Enum.CameraType.Scriptable
+        cam.CFrame = oldCamCF
+        
+        -- Swiftly move to clone, claim, and return
+        myRoot.CFrame = hrp.CFrame
+        task.wait(0.05)
+        forceConnect(npc)
+        
+        myRoot.CFrame = oldPos
+        cam.CameraType = oldCamType
+    end
+    
+    return CloneRecovery.IsCloneConnected(npc)
+end
+
+function CloneRecovery.VerifyCloneControl(npc)
+    return CloneRecovery.IsCloneConnected(npc) or CloneRecovery.RecoverClone(npc)
+end
+
+local function teleportClone(npc, targetCFrame)
+    local hrp = npc:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false end
+    
+    if not CloneRecovery.VerifyCloneControl(npc) then
+        return false
+    end
+    
+    hrp.CFrame = targetCFrame
+    hrp.AssemblyLinearVelocity = Vector3.zero
+    hrp.AssemblyAngularVelocity = Vector3.zero
+    return true
 end
 
 local npcCache = {}
@@ -227,7 +295,7 @@ BubbleText.TextSize = 14
 BubbleText.Parent = BubbleFrame
 
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 200, 0, 330)
+MainFrame.Size = UDim2.new(0, 200, 0, 370)
 MainFrame.AnchorPoint = Vector2.new(0.5, 0.5) -- Perfect center anchor
 MainFrame.Position = UDim2.new(0.5, 0, 0.5, 0) -- Perfect center position
 MainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
@@ -294,8 +362,9 @@ local btnChat = createToggle("Chat Commands", 120)
 local btnESP = createToggle("NPC ESP", 160)
 local btnAutoConnect = createToggle("Auto Connect", 200)
 local btnGossip = createToggle("Gossip Mode", 240)
-local btnCmdsList = createButton("Show Commands", 280)
-local btnToggleList = createButton("NPC Lists", 320)
+local btnAntiLag = createToggle("Anti-Lag", 280)
+local btnCmdsList = createButton("Show Commands", 320)
+local btnToggleList = createButton("NPC Lists", 360)
 
 local state = {
     Follow = false,
@@ -304,6 +373,7 @@ local state = {
     ESP = false,
     AutoConnect = false,
     Gossip = false,
+    AntiLag = false,
     CurrentTarget = nil,
     CurrentTargetName = nil,
     Mode = nil,
@@ -495,6 +565,19 @@ btnAutoConnect.MouseButton1Click:Connect(function()
     btnAutoConnect.Text = "Auto Connect: " .. (state.AutoConnect and "ON" or "OFF")
 end)
 
+btnAntiLag.MouseButton1Click:Connect(function()
+    state.AntiLag = not state.AntiLag
+    btnAntiLag.Text = "Anti-Lag: " .. (state.AntiLag and "ON" or "OFF")
+    for _, npc in ipairs(getNPCs()) do
+        for _, v in ipairs(npc:GetDescendants()) do
+            if v:IsA("BasePart") then
+                v.Material = state.AntiLag and Enum.Material.SmoothPlastic or Enum.Material.Plastic
+                v.CastShadow = not state.AntiLag
+            end
+        end
+    end
+end)
+
 local function handleCommand(player, msg)
     if type(msg) ~= "string" then return end
     if not state.Chat then return end
@@ -673,20 +756,9 @@ local function handleCommand(player, msg)
         if pRoot then
             task.spawn(function()
                 for i, npc in ipairs(npcs) do
-                    local hrp = npc:FindFirstChild("HumanoidRootPart")
-                    if hrp then
-                        local offset = Vector3.new(math.cos(i) * 5, 0, math.sin(i) * 5)
-                        local targetCFrame = pRoot.CFrame + offset
-                        
-                        -- Just cleanly teleport them to the player (assuming ownership from max SimRadius)
-                        hrp.CFrame = targetCFrame
-                        hrp.Velocity = Vector3.zero
-                        
-                        pcall(function()
-                            if type(setnetworkowner) == "function" then setnetworkowner(hrp, LocalPlayer)
-                            elseif type(setnetworkownership) == "function" then setnetworkownership(hrp, LocalPlayer) end
-                        end)
-                    end
+                    local offset = Vector3.new(math.cos(i) * 5, 0, math.sin(i) * 5)
+                    local targetCFrame = pRoot.CFrame + offset
+                    teleportClone(npc, targetCFrame)
                 end
             end)
         end
@@ -867,7 +939,7 @@ RunService.Heartbeat:Connect(function()
                 local lastTry = npcCache[npc] and npcCache[npc].lastForceConnect or 0
                 if tick() - lastTry > 3 then
                     if npcCache[npc] then npcCache[npc].lastForceConnect = tick() end
-                    forceConnect(npc)
+                    CloneRecovery.VerifyCloneControl(npc)
                     break
                 end
             end
