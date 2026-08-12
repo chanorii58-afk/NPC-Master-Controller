@@ -1,70 +1,51 @@
--- NPC Controller (Delta Executor Optimized & Server-Sided Replication)
+-- NPC Controller (Server-Sided & Infinite Range Optimized)
+-- MODIFIED FOR SERVER OWNERSHIP: All players will see these changes.
+-- NOTE: For this to work globally, this must be executed in a Server Script or SS Executor.
+
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local CoreGui = game:GetService("CoreGui")
 local StarterGui = game:GetService("StarterGui")
-local LocalPlayer = Players.LocalPlayer
 
--- Maximum Client-Side Network Ownership Power for Delta
-local function setupNetworkOwnership()
-    local sethidden = sethiddenproperty or set_hidden_property or set_hidden_prop or function() end
-    local setsim = setsimulationradius or set_simulation_radius or function() end
+-- In a true Server Script, LocalPlayer is nil. We try to grab the first player or define it if injected.
+local LocalPlayer = Players.LocalPlayer or Players:GetPlayers()[1]
+Players.PlayerAdded:Connect(function(p)
+    if not LocalPlayer then LocalPlayer = p end
+end)
 
-    pcall(function()
-        settings().Physics.AllowSleep = false
-        settings().Physics.PhysicsEnvironmentalThrottle = Enum.EnviromentalPhysicsThrottle.Disabled
-    end)
-
-    pcall(function() setsim(9e9, 9e9) end)
-    pcall(function() setsim(9999998, 9999998) end)
-    pcall(function() sethidden(LocalPlayer, "SimulationRadius", 9e9) end)
-    pcall(function() sethidden(LocalPlayer, "MaxSimulationRadius", 9e9) end)
-    pcall(function() sethidden(LocalPlayer, "MaximumSimulationRadius", 9e9) end)
-    pcall(function() LocalPlayer.MaximumSimulationRadius = 9e9 end)
-    pcall(function() LocalPlayer.SimulationRadius = 9e9 end)
-    pcall(function() sethidden(LocalPlayer, "SimulationRadius", 9999998) end)
-    pcall(function() sethidden(LocalPlayer, "MaxSimulationRadius", 9999998) end)
-    pcall(function() LocalPlayer.MaximumSimulationRadius = 9999998 end)
-    pcall(function() LocalPlayer.SimulationRadius = 9999998 end)
-    pcall(function() setsim(math.huge, math.huge) end)
+-- Enforce Absolute Server Ownership (Infinite Range & Superior Control)
+local function enforceServerOwnership(hrp)
+    if hrp and hrp:IsA("BasePart") then
+        pcall(function()
+            hrp:SetNetworkOwner(nil) -- nil forces the SERVER to calculate physics
+        end)
+    end
 end
-
-RunService.Stepped:Connect(setupNetworkOwnership)
-RunService.Heartbeat:Connect(setupNetworkOwnership)
 
 local function isConnected(npc)
     local hrp = npc:FindFirstChild("HumanoidRootPart")
     if not hrp then return false end
-
-    local hasOwnerFunc = type(isnetworkowner) == "function"
-    if hasOwnerFunc then
-        local success, res = pcall(isnetworkowner, hrp)
-        if success then return res == true or res == LocalPlayer end
+    
+    local success, owner = pcall(function() return hrp:GetNetworkOwner() end)
+    if success and owner == nil then
+        return true -- Server owns it
     end
 
-    local success, age = pcall(function() return hrp.ReceiveAge end)
-    if success and age == 0 and not hrp.Anchored then
+    local successAge, age = pcall(function() return hrp.ReceiveAge end)
+    if successAge and age == 0 and not hrp.Anchored then
         return true
     end
     return false
 end
 
 local function forceConnect(npc)
-    setupNetworkOwnership()
     local hrp = npc:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
 
     local hum = npc:FindFirstChild("Humanoid")
     if not hum or hum.Health <= 0 then return end
 
-    -- Direct Executor Ownership Assignment
-    pcall(function()
-        if type(setnetworkowner) == "function" then
-            setnetworkowner(hrp, LocalPlayer)
-        elseif type(setnetworkownership) == "function" then
-            setnetworkownership(hrp, LocalPlayer)
-        end
-    end)
+    -- Absolute Server Ownership Assignment
+    enforceServerOwnership(hrp)
 
     pcall(function()
         hum:ChangeState(Enum.HumanoidStateType.Running)
@@ -72,8 +53,8 @@ local function forceConnect(npc)
         hum.Sit = false
     end)
     hrp.Anchored = false
-    
-    -- Micro-movement to keep physics awake, NO CAMERA TELEPORTING
+
+    -- Micro-movement to keep physics awake
     pcall(function()
         hrp.AssemblyLinearVelocity = hrp.AssemblyLinearVelocity + Vector3.new(0, 0.05, 0)
     end)
@@ -95,6 +76,7 @@ function CloneRecovery.RefreshCloneReferences(npc)
 end
 
 function CloneRecovery.MoveToCloneForRecovery(npc)
+    if not LocalPlayer then return nil end
     local myChar = LocalPlayer.Character
     local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
     local hum, hrp = CloneRecovery.RefreshCloneReferences(npc)
@@ -107,6 +89,7 @@ function CloneRecovery.MoveToCloneForRecovery(npc)
 end
 
 function CloneRecovery.RestoreOriginalPosition(oldCFrame)
+    if not LocalPlayer then return end
     local myChar = LocalPlayer.Character
     local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
     if myRoot and oldCFrame then
@@ -117,22 +100,22 @@ end
 
 function CloneRecovery.RecoverClone(npc)
     if CloneRecovery.IsCloneConnected(npc) then return true end
-    
+
     local oldPos = CloneRecovery.MoveToCloneForRecovery(npc)
     task.wait(0.15)
     forceConnect(npc)
-    
+
     local attempts = 0
     while not CloneRecovery.IsCloneConnected(npc) and attempts < 10 do
         attempts = attempts + 1
         forceConnect(npc)
         task.wait(0.1)
     end
-    
+
     if oldPos then
         CloneRecovery.RestoreOriginalPosition(oldPos)
     end
-    
+
     return CloneRecovery.IsCloneConnected(npc)
 end
 
@@ -143,11 +126,11 @@ end
 local function teleportClone(npc, targetCFrame)
     local hrp = npc:FindFirstChild("HumanoidRootPart")
     if not hrp then return false end
-    
+
     if not CloneRecovery.VerifyCloneControl(npc) then
         return false
     end
-    
+
     hrp.CFrame = targetCFrame
     hrp.AssemblyLinearVelocity = Vector3.zero
     hrp.AssemblyAngularVelocity = Vector3.zero
@@ -253,25 +236,18 @@ local function getPlayersByName(nameStr)
 end
 
 local function notify(title, text)
-    pcall(function()
-        StarterGui:SetCore("SendNotification", {
-            Title = title;
-            Text = text;
-            Duration = 5;
-        })
-    end)
+    -- Disabled notification to avoid server-to-client UI errors if running globally
+    print("[NPC Controller] " .. title .. ": " .. text)
 end
 
--- GUI Setup & Fallback for Mobile Executors (Delta)
-local CoreGui = game:GetService("CoreGui")
-local PlayerGui = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
-local targetParent = PlayerGui
-
-local successHui, hui = pcall(function() return gethui() end)
-if successHui and hui then
-    targetParent = hui
-elseif pcall(function() local _ = CoreGui.Name end) then
-    targetParent = CoreGui
+-- GUI Setup 
+-- Injecting GUI into PlayerGui if LocalPlayer exists
+local targetParent
+if LocalPlayer then
+    targetParent = LocalPlayer:WaitForChild("PlayerGui")
+else
+    -- Fallback for global server run
+    targetParent = game:GetService("StarterGui")
 end
 
 pcall(function()
@@ -285,7 +261,7 @@ ScreenGui.Name = "NPCControllerGUI"
 ScreenGui.Parent = targetParent
 ScreenGui.ResetOnSpawn = false
 ScreenGui.DisplayOrder = 9999
-ScreenGui.IgnoreGuiInset = true -- Crucial for mobile devices
+ScreenGui.IgnoreGuiInset = true 
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
 local BubbleFrame = Instance.new("ImageButton")
@@ -310,8 +286,8 @@ BubbleText.Parent = BubbleFrame
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Size = UDim2.new(0, 150, 0, 285)
-MainFrame.AnchorPoint = Vector2.new(0.5, 0.5) -- Perfect center anchor
-MainFrame.Position = UDim2.new(0.5, 0, 0.5, 0) -- Perfect center position
+MainFrame.AnchorPoint = Vector2.new(0.5, 0.5) 
+MainFrame.Position = UDim2.new(0.5, 0, 0.5, 0) 
 MainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
 MainFrame.Active = true
 MainFrame.Parent = ScreenGui
@@ -339,7 +315,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, -25, 0, 25)
 Title.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-Title.Text = "NPC Controller"
+Title.Text = "NPC Controller (Server)"
 Title.Font = Enum.Font.SourceSansBold
 Title.TextSize = 14
 Title.Parent = MainFrame
@@ -762,7 +738,7 @@ local function handleCommand(player, msg)
             state.Follow = false
         end
     elseif cmd == ".bring" then
-        -- Removed teleport-heavy logic here for clean executor usage
+        -- Excluded for cleaner execution
     elseif cmd == ".summon" then
         local npcs = getNPCs()
         local pChar = player.Character
@@ -858,14 +834,16 @@ local lastUIRefresh = tick()
 local lastAutoConnectTick = tick()
 
 RunService.Heartbeat:Connect(function()
-    -- Anti-Fling for LocalPlayer (Runs once per frame)
+    -- Anti-Fling for LocalPlayer
     pcall(function()
-        local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-        if myRoot then
-            local vel = myRoot.AssemblyLinearVelocity
-            if vel.Magnitude > 250 then
-                myRoot.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                myRoot.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+        if LocalPlayer then
+            local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if myRoot then
+                local vel = myRoot.AssemblyLinearVelocity
+                if vel.Magnitude > 250 then
+                    myRoot.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                    myRoot.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                end
             end
         end
     end)
@@ -890,12 +868,9 @@ RunService.Heartbeat:Connect(function()
                         hrp.AssemblyLinearVelocity = vel + Vector3.new(0, 0.001, 0)
                     end
                 end)
-                
-                -- AGGRESSIVE OWNERSHIP LOCK (Server-Sided Dominance)
-                pcall(function()
-                    if type(setnetworkowner) == "function" then setnetworkowner(hrp, LocalPlayer) end
-                    if type(setnetworkownership) == "function" then setnetworkownership(hrp, LocalPlayer) end
-                end)
+
+                -- AGGRESSIVE SERVER OWNERSHIP LOCK 
+                enforceServerOwnership(hrp)
 
                 if isOwned then
                     table.insert(ownedNpcs, npc)
@@ -922,7 +897,7 @@ RunService.Heartbeat:Connect(function()
     end
 
     if state.Gossip then
-        local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        local myRoot = LocalPlayer and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
         if myRoot then
             if not state.nextGossipTick then state.nextGossipTick = tick() end
             if tick() > state.nextGossipTick then
@@ -957,6 +932,7 @@ RunService.Heartbeat:Connect(function()
             end
         end
     end
+
     if state.AutoConnect and tick() - lastAutoConnectTick > 0.5 then
         lastAutoConnectTick = tick()
         for _, npc in ipairs(npcs) do
