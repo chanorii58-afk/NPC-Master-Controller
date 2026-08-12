@@ -15,12 +15,18 @@ local function setupNetworkOwnership()
         settings().Physics.PhysicsEnvironmentalThrottle = Enum.EnviromentalPhysicsThrottle.Disabled
     end)
 
+    pcall(function() setsim(9e9, 9e9) end)
+    pcall(function() setsim(9999998, 9999998) end)
+    pcall(function() sethidden(LocalPlayer, "SimulationRadius", 9e9) end)
+    pcall(function() sethidden(LocalPlayer, "MaxSimulationRadius", 9e9) end)
+    pcall(function() sethidden(LocalPlayer, "MaximumSimulationRadius", 9e9) end)
+    pcall(function() LocalPlayer.MaximumSimulationRadius = 9e9 end)
+    pcall(function() LocalPlayer.SimulationRadius = 9e9 end)
+    pcall(function() sethidden(LocalPlayer, "SimulationRadius", 9999998) end)
+    pcall(function() sethidden(LocalPlayer, "MaxSimulationRadius", 9999998) end)
+    pcall(function() LocalPlayer.MaximumSimulationRadius = 9999998 end)
+    pcall(function() LocalPlayer.SimulationRadius = 9999998 end)
     pcall(function() setsim(math.huge, math.huge) end)
-    pcall(function() sethidden(LocalPlayer, "SimulationRadius", math.huge) end)
-    pcall(function() sethidden(LocalPlayer, "MaxSimulationRadius", math.huge) end)
-    pcall(function() sethidden(LocalPlayer, "MaximumSimulationRadius", math.huge) end)
-    pcall(function() LocalPlayer.MaximumSimulationRadius = math.huge end)
-    pcall(function() LocalPlayer.SimulationRadius = math.huge end)
 end
 
 RunService.Stepped:Connect(setupNetworkOwnership)
@@ -303,7 +309,7 @@ BubbleText.TextSize = 14
 BubbleText.Parent = BubbleFrame
 
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 200, 0, 370)
+MainFrame.Size = UDim2.new(0, 150, 0, 285)
 MainFrame.AnchorPoint = Vector2.new(0.5, 0.5) -- Perfect center anchor
 MainFrame.Position = UDim2.new(0.5, 0, 0.5, 0) -- Perfect center position
 MainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
@@ -311,13 +317,13 @@ MainFrame.Active = true
 MainFrame.Parent = ScreenGui
 
 local CloseMainBtn = Instance.new("TextButton")
-CloseMainBtn.Size = UDim2.new(0, 30, 0, 30)
-CloseMainBtn.Position = UDim2.new(1, -30, 0, 0)
+CloseMainBtn.Size = UDim2.new(0, 25, 0, 25)
+CloseMainBtn.Position = UDim2.new(1, -25, 0, 0)
 CloseMainBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
 CloseMainBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 CloseMainBtn.Text = "X"
 CloseMainBtn.Font = Enum.Font.SourceSansBold
-CloseMainBtn.TextSize = 16
+CloseMainBtn.TextSize = 14
 CloseMainBtn.Parent = MainFrame
 
 CloseMainBtn.MouseButton1Click:Connect(function()
@@ -330,49 +336,49 @@ BubbleFrame.MouseButton1Click:Connect(function()
 end)
 
 local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, -30, 0, 30)
+Title.Size = UDim2.new(1, -25, 0, 25)
 Title.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.Text = "NPC Controller"
 Title.Font = Enum.Font.SourceSansBold
-Title.TextSize = 16
+Title.TextSize = 14
 Title.Parent = MainFrame
 
 local function createToggle(name, yPos)
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, -20, 0, 30)
-    btn.Position = UDim2.new(0, 10, 0, yPos)
+    btn.Size = UDim2.new(1, -16, 0, 25)
+    btn.Position = UDim2.new(0, 8, 0, yPos)
     btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
     btn.TextColor3 = Color3.fromRGB(255, 255, 255)
     btn.Text = name .. ": OFF"
     btn.Font = Enum.Font.SourceSans
-    btn.TextSize = 14
+    btn.TextSize = 12
     btn.Parent = MainFrame
     return btn
 end
 
 local function createButton(name, yPos)
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, -20, 0, 30)
-    btn.Position = UDim2.new(0, 10, 0, yPos)
+    btn.Size = UDim2.new(1, -16, 0, 25)
+    btn.Position = UDim2.new(0, 8, 0, yPos)
     btn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
     btn.TextColor3 = Color3.fromRGB(255, 255, 255)
     btn.Text = name
     btn.Font = Enum.Font.SourceSans
-    btn.TextSize = 14
+    btn.TextSize = 12
     btn.Parent = MainFrame
     return btn
 end
 
-local btnFollow = createToggle("Follow Me", 40)
-local btnSpin = createToggle("Spin NPCs", 80)
-local btnChat = createToggle("Chat Commands", 120)
-local btnESP = createToggle("NPC ESP", 160)
-local btnAutoConnect = createToggle("Auto Connect", 200)
-local btnGossip = createToggle("Gossip Mode", 240)
-local btnAntiLag = createToggle("Anti-Lag", 280)
-local btnCmdsList = createButton("Show Commands", 320)
-local btnToggleList = createButton("NPC Lists", 360)
+local btnFollow = createToggle("Follow Me", 30)
+local btnSpin = createToggle("Spin NPCs", 58)
+local btnChat = createToggle("Chat Commands", 86)
+local btnESP = createToggle("NPC ESP", 114)
+local btnAutoConnect = createToggle("Auto Connect", 142)
+local btnGossip = createToggle("Gossip Mode", 170)
+local btnAntiLag = createToggle("Anti-Lag", 198)
+local btnCmdsList = createButton("Show Commands", 226)
+local btnToggleList = createButton("NPC Lists", 254)
 
 local state = {
     Follow = false,
@@ -878,7 +884,19 @@ RunService.Heartbeat:Connect(function()
                     pcall(function()
                         for _, part in ipairs(npc:GetDescendants()) do
                             if part:IsA("BasePart") and not part.Anchored then
-                                part.CustomPhysicalProperties = PhysicalProperties.new(100, 0, 0, 100, 100)
+                                part.CustomPhysicalProperties = PhysicalProperties.new(0.01, 0, 0, 0, 0)
+                            end
+                        end
+                    end)
+                    
+                    -- Anti-Fling for LocalPlayer
+                    pcall(function()
+                        local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                        if myRoot then
+                            local vel = myRoot.AssemblyLinearVelocity
+                            if vel.Magnitude > 250 then
+                                myRoot.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                                myRoot.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
                             end
                         end
                     end)
@@ -1613,57 +1631,48 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
-local dragging, dragInput, dragStart, startPos
-local draggingB, dragInputB, dragStartB, startPosB
+local UserInputService = game:GetService("UserInputService")
 
-MainFrame.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = true
-        dragStart = input.Position
-        startPos = MainFrame.Position
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-            end
-        end)
-    end
-end)
+local function makeDraggable(frame)
+    local dragging
+    local dragInput
+    local dragStart
+    local startPos
 
-MainFrame.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-        dragInput = input
+    local function update(input)
+        local delta = input.Position - dragStart
+        frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
     end
-end)
 
-BubbleFrame.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        draggingB = true
-        dragStartB = input.Position
-        startPosB = BubbleFrame.Position
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                draggingB = false
-            end
-        end)
-    end
-end)
+    frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
 
-BubbleFrame.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-        dragInputB = input
-    end
-end)
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
 
-RunService.RenderStepped:Connect(function()
-    if dragging and dragInput then
-        local delta = dragInput.Position - dragStart
-        MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-    end
-    if draggingB and dragInputB then
-        local delta = dragInputB.Position - dragStartB
-        BubbleFrame.Position = UDim2.new(startPosB.X.Scale, startPosB.X.Offset + delta.X, startPosB.Y.Scale, startPosB.Y.Offset + delta.Y)
-    end
-end)
+    frame.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            update(input)
+        end
+    end)
+end
+
+makeDraggable(MainFrame)
+makeDraggable(BubbleFrame)
 
 local PathfindingService = game:GetService("PathfindingService")
 
