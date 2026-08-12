@@ -858,6 +858,18 @@ local lastUIRefresh = tick()
 local lastAutoConnectTick = tick()
 
 RunService.Heartbeat:Connect(function()
+    -- Anti-Fling for LocalPlayer (Runs once per frame)
+    pcall(function()
+        local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if myRoot then
+            local vel = myRoot.AssemblyLinearVelocity
+            if vel.Magnitude > 250 then
+                myRoot.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                myRoot.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+            end
+        end
+    end)
+
     local npcs = getNPCs()
     local ownedNpcs = {}
 
@@ -878,28 +890,15 @@ RunService.Heartbeat:Connect(function()
                         hrp.AssemblyLinearVelocity = vel + Vector3.new(0, 0.001, 0)
                     end
                 end)
+                
+                -- AGGRESSIVE OWNERSHIP LOCK (Server-Sided Dominance)
+                pcall(function()
+                    if type(setnetworkowner) == "function" then setnetworkowner(hrp, LocalPlayer) end
+                    if type(setnetworkownership) == "function" then setnetworkownership(hrp, LocalPlayer) end
+                end)
 
                 if isOwned then
                     table.insert(ownedNpcs, npc)
-                    pcall(function()
-                        for _, part in ipairs(npc:GetDescendants()) do
-                            if part:IsA("BasePart") and not part.Anchored then
-                                part.CustomPhysicalProperties = PhysicalProperties.new(0.01, 0, 0, 0, 0)
-                            end
-                        end
-                    end)
-                    
-                    -- Anti-Fling for LocalPlayer
-                    pcall(function()
-                        local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                        if myRoot then
-                            local vel = myRoot.AssemblyLinearVelocity
-                            if vel.Magnitude > 250 then
-                                myRoot.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                                myRoot.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-                            end
-                        end
-                    end)
 
                     if npcOwnershipState[npc] ~= true then
                         if hum then
