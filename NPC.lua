@@ -13,6 +13,35 @@ Players.PlayerAdded:Connect(function(p)
 	if not LocalPlayer then LocalPlayer = p end
 end)
 
+local state = {
+
+	Follow = false,
+	Spin = false,
+	Chat = false,
+	ESP = false,
+	AutoConnect = false,
+	Gossip = false,
+	AntiLag = false,
+	CurrentTarget = nil,
+	CurrentTargetName = nil,
+	Mode = nil,
+	CommandIssuer = LocalPlayer,
+	YesOrNoPick = 1,
+	YesOrNoTick = 0,
+	StayingNPCs = {},
+	StackUpPos = nil,
+	NetworkRange = math.huge,
+	SpecificFollow = {},
+	RoamPoints = {},
+	CurrentRoamIndex = {},
+	PathfindTarget = nil,
+	MimicNPCs = {},
+	OrbitSpeed = 1,
+	SelfDefense = false,
+	ShowRadius = false,
+	NanFlingTarget = nil
+}
+
 -- ==========================================
 -- INFINITE RANGE EXECUTOR OPTIMIZATION
 -- ==========================================
@@ -424,34 +453,7 @@ btnShowRadius.MouseButton1Click:Connect(function()
 end)
 
 
-local state = {
 
-	Follow = false,
-	Spin = false,
-	Chat = false,
-	ESP = false,
-	AutoConnect = false,
-	Gossip = false,
-	AntiLag = false,
-	CurrentTarget = nil,
-	CurrentTargetName = nil,
-	Mode = nil,
-	CommandIssuer = LocalPlayer,
-	YesOrNoPick = 1,
-	YesOrNoTick = 0,
-	StayingNPCs = {},
-	StackUpPos = nil,
-	NetworkRange = math.huge,
-	SpecificFollow = {},
-	RoamPoints = {},
-	CurrentRoamIndex = {},
-	PathfindTarget = nil,
-	MimicNPCs = {},
-	OrbitSpeed = 1,
-	SelfDefense = false,
-	ShowRadius = false,
-	NanFlingTarget = nil
-}
 
 local permissions = {}
 
