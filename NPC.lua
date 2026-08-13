@@ -22,10 +22,11 @@ task.spawn(function()
 		pcall(function()
 			if LocalPlayer then
 				if sethiddenproperty then
-					sethiddenproperty(LocalPlayer, "SimulationRadius", math.huge)
-					sethiddenproperty(LocalPlayer, "MaxSimulationRadius", math.huge)
+					local r = state.NetworkRange or math.huge
+					sethiddenproperty(LocalPlayer, "SimulationRadius", r)
+					sethiddenproperty(LocalPlayer, "MaxSimulationRadius", r)
 				else
-					LocalPlayer.SimulationRadius = math.huge
+					LocalPlayer.SimulationRadius = r
 				end
 			end
 		end)
@@ -374,6 +375,7 @@ local btnCmdsList = createButton("Show Commands", 226)
 local btnToggleList = createButton("NPC Lists", 254)
 
 local state = {
+
 	Follow = false,
 	Spin = false,
 	Chat = false,
@@ -388,7 +390,13 @@ local state = {
 	YesOrNoPick = 1,
 	YesOrNoTick = 0,
 	StayingNPCs = {},
-	StackUpPos = nil
+	StackUpPos = nil,
+	NetworkRange = math.huge,
+	SpecificFollow = {},
+	RoamPoints = {},
+	CurrentRoamIndex = {},
+	PathfindTarget = nil,
+	MimicNPCs = {}
 }
 
 local permissions = {}
@@ -460,6 +468,16 @@ CmdsLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
 end)
 
 local cmdListText = {
+	"[id] follow [player] - Specific follow",
+	"ufo - Orbit and levitate",
+	".range [inf/number] - Set network range",
+	"roam here [id] - Set roam point (use twice)",
+	"stop roam [id] - Stop roaming",
+	"pathfind [player] - Pathfind to target",
+	"[id] goto [player] - Teleport ID to target",
+	"[id] tempgoto [player] - Teleport ID for 5s",
+	"follow me [id/all] - Mimic your movements",
+
 	"attack [player] - Attack target",
 	"makeway - Move away from you",
 	"arise - Walk randomly",
@@ -608,6 +626,49 @@ local function handleCommand(player, msg)
 	local args = string.split(msgLower, " ")
 	local cmd = args[1]
 
+	local isNumericFirst = tonumber(cmd) ~= nil
+	if isNumericFirst then
+		local npcId = tonumber(cmd)
+		local subCmd = args[2]
+		if subCmd == "follow" and args[3] then
+			local target = getPlayer(args[3])
+			local npc = getNPCById(npcId)
+			if target and npc then
+				state.SpecificFollow[npc] = target
+				notify("Follow", "NPC " .. npcId .. " following " .. target.Name)
+			end
+		elseif subCmd == "goto" and args[3] then
+			local target = getPlayer(args[3])
+			local npc = getNPCById(npcId)
+			if target and npc and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+				local tRoot = target.Character.HumanoidRootPart
+				local hrp = npc:FindFirstChild("HumanoidRootPart")
+				if hrp then
+					hrp.CFrame = tRoot.CFrame * CFrame.new(0, 0, -3)
+				end
+			end
+		elseif subCmd == "tempgoto" and args[3] then
+			local target = getPlayer(args[3])
+			local npc = getNPCById(npcId)
+			if target and npc and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+				task.spawn(function()
+					local tRoot = target.Character.HumanoidRootPart
+					local hrp = npc:FindFirstChild("HumanoidRootPart")
+					if hrp then
+						hrp.CFrame = tRoot.CFrame * CFrame.new(0, 0, -3)
+						task.wait(5)
+						local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+						if myRoot and hrp then
+							hrp.CFrame = myRoot.CFrame * CFrame.new(0, 0, -3)
+						end
+					end
+				end)
+			end
+		end
+		return
+	end
+
+
 	if cmd == ".givecommand" and player == LocalPlayer then
 		local target = getPlayer(args[2])
 		local permCmd = args[3]
@@ -624,6 +685,59 @@ local function handleCommand(player, msg)
 		if target and permCmd and permissions[target.UserId] then
 			permissions[target.UserId][permCmd] = nil
 			notify("Permission", "Removed " .. target.Name .. "'s access to: " .. permCmd)
+		end
+	elseif cmd == "ufo" then
+		state.Mode = "UFO"
+		state.Follow = false
+		state.CommandIssuer = player
+	elseif cmd == ".range" and args[2] then
+		if args[2] == "inf" or args[2] == "nil" then
+			state.NetworkRange = math.huge
+		else
+			state.NetworkRange = tonumber(args[2]) or math.huge
+		end
+	elseif cmd == "roam" and args[2] == "here" and args[3] then
+		local npcId = tonumber(args[3])
+		if npcId then
+			local npc = getNPCById(npcId)
+			local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+			if npc and myRoot then
+				state.RoamPoints[npc] = state.RoamPoints[npc] or {}
+				table.insert(state.RoamPoints[npc], myRoot.Position)
+				if #state.RoamPoints[npc] > 2 then
+					table.remove(state.RoamPoints[npc], 1)
+				end
+				state.CurrentRoamIndex[npc] = 1
+			end
+		end
+	elseif cmd == "stop" and args[2] == "roam" and args[3] then
+		local npcId = tonumber(args[3])
+		if npcId then
+			local npc = getNPCById(npcId)
+			if npc then
+				state.RoamPoints[npc] = nil
+			end
+		end
+	elseif cmd == "pathfind" and args[2] then
+		local target = getPlayer(args[2])
+		if target then
+			state.Mode = "Pathfind"
+			state.PathfindTarget = target
+		end
+	elseif cmd == "follow" and args[2] == "me" and args[3] then
+		state.Mode = "Mimic"
+		state.Follow = false
+		if args[3] == "all" then
+			state.MimicNPCs = {}
+			for _, npc in ipairs(getNPCs()) do
+				state.MimicNPCs[npc] = true
+			end
+		else
+			local npcId = tonumber(args[3])
+			if npcId then
+				local npc = getNPCById(npcId)
+				if npc then state.MimicNPCs[npc] = true end
+			end
 		end
 	elseif cmd == "attack" and args[2] then
 		local target = getPlayer(args[2])
@@ -872,7 +986,13 @@ RunService.Heartbeat:Connect(function()
 		if hrp then
 			local isOwned = isConnected(npc)
 
-			if isOwned or state.AutoConnect then
+			local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+			local inRange = true
+			if myRoot and state.NetworkRange ~= math.huge then
+				inRange = (hrp.Position - myRoot.Position).Magnitude <= state.NetworkRange
+			end
+
+			if inRange and (isOwned or state.AutoConnect) then
 				hrp.Anchored = false
 				pcall(function()
 					local vel = hrp.AssemblyLinearVelocity
@@ -1051,11 +1171,48 @@ RunService.Heartbeat:Connect(function()
 		end
 	end
 
+	
+	-- Pre-process overrides (SpecificFollow, Roam, Mimic)
+	state.IsOverridden = {}
+	for _, npc in ipairs(ownedNpcs) do
+		local overriden = false
+		-- SpecificFollow
+		local sTarget = state.SpecificFollow[npc]
+		if sTarget and sTarget.Character then
+			local tRoot = sTarget.Character:FindFirstChild("HumanoidRootPart")
+			local hum = npc:FindFirstChild("Humanoid")
+			if tRoot and hum then
+				if (npc.HumanoidRootPart.Position - tRoot.Position).Magnitude > 3 then
+					hum:MoveTo(tRoot.Position)
+				end
+				overriden = true
+			end
+		end
+		-- Roaming
+		local rPoints = state.RoamPoints[npc]
+		if not overriden and rPoints and #rPoints > 0 then
+			local hrp = npc:FindFirstChild("HumanoidRootPart")
+			local hum = npc:FindFirstChild("Humanoid")
+			if hrp and hum then
+				local idx = state.CurrentRoamIndex[npc] or 1
+				local tPos = rPoints[idx]
+				if (hrp.Position - tPos).Magnitude < 3 then
+					state.CurrentRoamIndex[npc] = (idx % #rPoints) + 1
+				else
+					hum:MoveTo(tPos)
+				end
+				overriden = true
+			end
+		end
+		state.IsOverridden[npc] = overriden
+	end
+
 	local issuerChar = state.CommandIssuer and state.CommandIssuer.Character
 	local issuerRoot = issuerChar and issuerChar:FindFirstChild("HumanoidRootPart")
 
 	if state.Follow and issuerRoot then
 		for _, npc in ipairs(ownedNpcs) do
+			if state.IsOverridden[npc] then continue end
 			local hum = npc:FindFirstChild("Humanoid")
 			local cache = npcCache[npc]
 			if hum and hum.Health > 0 then
@@ -1124,6 +1281,64 @@ RunService.Heartbeat:Connect(function()
 					if alignOri then alignOri.CFrame = targetCFrame end
 					hrp.Velocity = Vector3.zero
 					hrp.RotVelocity = Vector3.zero
+				end
+			end
+		end
+	elseif state.Mode == "UFO" and issuerRoot then
+		local t = tick()
+		for i, npc in ipairs(ownedNpcs) do
+			if not state.StayingNPCs[npc] and not state.IsOverridden[npc] then
+				local hrp = npc:FindFirstChild("HumanoidRootPart")
+				local hum = npc:FindFirstChild("Humanoid")
+				if hrp and hum then
+					hum.PlatformStand = true
+					local angle = (t * 2) + (i * (math.pi * 2 / #ownedNpcs))
+					local radius = 10
+					local yOffset = math.sin(t * 3) * 5 + 10
+					local targetPos = issuerRoot.Position + Vector3.new(math.cos(angle) * radius, yOffset, math.sin(angle) * radius)
+					
+					local alignPos = hrp:FindFirstChild("MechaAlign")
+					if not alignPos then
+						local att = hrp:FindFirstChild("MechaAtt") or Instance.new("Attachment", hrp)
+						att.Name = "MechaAtt"
+						alignPos = Instance.new("AlignPosition")
+						alignPos.Name = "MechaAlign"
+						alignPos.Mode = Enum.PositionAlignmentMode.OneAttachment
+						alignPos.Attachment0 = att
+						alignPos.MaxForce = 1000000
+						alignPos.Responsiveness = 200
+						alignPos.Parent = hrp
+						local alignOri = hrp:FindFirstChild("MechaOri") or Instance.new("AlignOrientation", hrp)
+						alignOri.Name = "MechaOri"
+						alignOri.Mode = Enum.OrientationAlignmentMode.OneAttachment
+						alignOri.Attachment0 = att
+						alignOri.MaxTorque = 1000000
+						alignOri.Responsiveness = 200
+					end
+					alignPos.Position = targetPos
+					local mechaOri = hrp:FindFirstChild("MechaOri")
+					if mechaOri then 
+						mechaOri.CFrame = CFrame.new(hrp.Position, issuerRoot.Position)
+					end
+					hrp.Velocity = Vector3.zero
+					hrp.RotVelocity = Vector3.zero
+				end
+			end
+		end
+	elseif state.Mode == "Mimic" and issuerRoot then
+		local myHum = issuerChar:FindFirstChild("Humanoid")
+		for i, npc in ipairs(ownedNpcs) do
+			if state.MimicNPCs[npc] and not state.IsOverridden[npc] then
+				local hrp = npc:FindFirstChild("HumanoidRootPart")
+				local hum = npc:FindFirstChild("Humanoid")
+				if hrp and hum and myHum then
+					hum.Jump = myHum.Jump
+					local dist = (hrp.Position - issuerRoot.Position).Magnitude
+					if dist > 50 then
+						hrp.CFrame = issuerRoot.CFrame * CFrame.new(math.random(-2,2), 0, math.random(-2,2))
+					else
+						hum:MoveTo(issuerRoot.Position)
+					end
 				end
 			end
 		end
@@ -1461,7 +1676,7 @@ RunService.Heartbeat:Connect(function()
 				end
 			end
 		end
-	elseif state.Mode ~= "Drag" and state.Mode ~= "StackUp" and state.Mode ~= "Mecha" and state.Mode ~= "Stairs" and state.Mode ~= "Wall" and state.Mode ~= "Find" then
+	elseif state.Mode ~= "Drag" and state.Mode ~= "StackUp" and state.Mode ~= "Mecha" and state.Mode ~= "Stairs" and state.Mode ~= "Wall" and state.Mode ~= "Find" and state.Mode ~= "UFO" then
 		for _, npc in ipairs(ownedNpcs) do
 			local hrp = npc:FindFirstChild("HumanoidRootPart")
 			local hum = npc:FindFirstChild("Humanoid")
@@ -1530,6 +1745,9 @@ RunService.Heartbeat:Connect(function()
 	end
 
 	if state.Mode == "Attack" and state.CurrentTarget and state.CurrentTarget.Character then
+			targetRoot = state.CurrentTarget.Character:FindFirstChild("HumanoidRootPart")
+		elseif state.Mode == "Pathfind" and state.PathfindTarget and state.PathfindTarget.Character then
+			targetRoot = state.PathfindTarget.Character:FindFirstChild("HumanoidRootPart")
 		local targetRoot = state.CurrentTarget.Character:FindFirstChild("HumanoidRootPart")
 		if targetRoot then
 			for _, npc in ipairs(ownedNpcs) do
@@ -1657,8 +1875,7 @@ task.spawn(function()
 		local targetRoot = nil
 
 		if state.Mode == "Attack" and state.CurrentTarget and state.CurrentTarget.Character then
-			targetRoot = state.CurrentTarget.Character:FindFirstChild("HumanoidRootPart")
-		elseif state.Follow and state.CommandIssuer and state.CommandIssuer.Character then
+			elseif state.Follow and state.CommandIssuer and state.CommandIssuer.Character then
 			targetRoot = state.CommandIssuer.Character:FindFirstChild("HumanoidRootPart")
 		end
 
