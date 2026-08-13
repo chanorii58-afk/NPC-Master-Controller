@@ -28,6 +28,28 @@ task.spawn(function()
 				else
 					LocalPlayer.SimulationRadius = r
 				end
+				
+				local radPart = workspace:FindFirstChild("NPCRadiusVisual")
+				if state.ShowRadius and r ~= math.huge then
+					if not radPart then
+						radPart = Instance.new("Part")
+						radPart.Name = "NPCRadiusVisual"
+						radPart.Shape = Enum.PartType.Ball
+						radPart.Material = Enum.Material.ForceField
+						radPart.Color = Color3.fromRGB(0, 255, 0)
+						radPart.Anchored = true
+						radPart.CanCollide = false
+						radPart.CastShadow = false
+						radPart.Parent = workspace
+					end
+					radPart.Size = Vector3.new(r * 2, r * 2, r * 2)
+					local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+					if myRoot then
+						radPart.Position = myRoot.Position
+					end
+				elseif radPart then
+					radPart:Destroy()
+				end
 			end
 		end)
 	end)
@@ -338,41 +360,69 @@ Title.Font = Enum.Font.SourceSansBold
 Title.TextSize = 14
 Title.Parent = MainFrame
 
-local function createToggle(name, yPos)
+local MainScroll = Instance.new("ScrollingFrame")
+MainScroll.Size = UDim2.new(1, 0, 1, -25)
+MainScroll.Position = UDim2.new(0, 0, 0, 25)
+MainScroll.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+MainScroll.ScrollBarThickness = 4
+MainScroll.CanvasSize = UDim2.new(0, 0, 0, 310)
+MainScroll.Parent = MainFrame
+
+local UIListLayoutMain = Instance.new("UIListLayout")
+UIListLayoutMain.Padding = UDim.new(0, 2)
+UIListLayoutMain.HorizontalAlignment = Enum.HorizontalAlignment.Center
+UIListLayoutMain.Parent = MainScroll
+
+UIListLayoutMain:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+	MainScroll.CanvasSize = UDim2.new(0, 0, 0, UIListLayoutMain.AbsoluteContentSize.Y + 10)
+end)
+
+local function createToggle(name)
 	local btn = Instance.new("TextButton")
 	btn.Size = UDim2.new(1, -16, 0, 25)
-	btn.Position = UDim2.new(0, 8, 0, yPos)
 	btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
 	btn.TextColor3 = Color3.fromRGB(255, 255, 255)
 	btn.Text = name .. ": OFF"
 	btn.Font = Enum.Font.SourceSans
 	btn.TextSize = 12
-	btn.Parent = MainFrame
+	btn.Parent = MainScroll
 	return btn
 end
 
-local function createButton(name, yPos)
+local function createButton(name)
 	local btn = Instance.new("TextButton")
 	btn.Size = UDim2.new(1, -16, 0, 25)
-	btn.Position = UDim2.new(0, 8, 0, yPos)
 	btn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
 	btn.TextColor3 = Color3.fromRGB(255, 255, 255)
 	btn.Text = name
 	btn.Font = Enum.Font.SourceSans
 	btn.TextSize = 12
-	btn.Parent = MainFrame
+	btn.Parent = MainScroll
 	return btn
 end
 
-local btnFollow = createToggle("Follow Me", 30)
-local btnSpin = createToggle("Spin NPCs", 58)
-local btnChat = createToggle("Chat Commands", 86)
-local btnESP = createToggle("NPC ESP", 114)
-local btnAutoConnect = createToggle("Auto Connect", 142)
-local btnGossip = createToggle("Gossip Mode", 170)
-local btnAntiLag = createToggle("Anti-Lag", 198)
-local btnCmdsList = createButton("Show Commands", 226)
-local btnToggleList = createButton("NPC Lists", 254)
+local Spacer = Instance.new("Frame")
+Spacer.Size = UDim2.new(1, 0, 0, 2)
+Spacer.BackgroundTransparency = 1
+Spacer.Parent = MainScroll
+
+local btnFollow = createToggle("Follow Me")
+local btnSpin = createToggle("Spin NPCs")
+local btnChat = createToggle("Chat Commands")
+local btnESP = createToggle("NPC ESP")
+local btnAutoConnect = createToggle("Auto Connect")
+local btnGossip = createToggle("Gossip Mode")
+local btnAntiLag = createToggle("Anti-Lag")
+local btnShowRadius = createToggle("Visible Radius")
+local btnCmdsList = createButton("Show Commands")
+local btnToggleList = createButton("NPC Lists")
+
+btnShowRadius.MouseButton1Click:Connect(function()
+	state.ShowRadius = not state.ShowRadius
+	btnShowRadius.Text = "Visible Radius: " .. (state.ShowRadius and "ON" or "OFF")
+	btnShowRadius.BackgroundColor3 = state.ShowRadius and Color3.fromRGB(50, 150, 50) or Color3.fromRGB(50, 50, 50)
+end)
+
 
 local state = {
 
@@ -396,7 +446,11 @@ local state = {
 	RoamPoints = {},
 	CurrentRoamIndex = {},
 	PathfindTarget = nil,
-	MimicNPCs = {}
+	MimicNPCs = {},
+	OrbitSpeed = 1,
+	SelfDefense = false,
+	ShowRadius = false,
+	NanFlingTarget = nil
 }
 
 local permissions = {}
@@ -477,6 +531,10 @@ local cmdListText = {
 	"[id] goto [player] - Teleport ID to target",
 	"[id] tempgoto [player] - Teleport ID for 5s",
 	"follow me [id/all] - Mimic your movements",
+	"self defense - Toggle fling protection",
+	"fling [player] - Target walks to fling",
+	"nanfling [player] - Teleport inside target and fling",
+	"orbit speed [value] - Adjust UFO/orbit speed",
 
 	"attack [player] - Attack target",
 	"makeway - Move away from you",
@@ -704,9 +762,7 @@ local function handleCommand(player, msg)
 			if npc and myRoot then
 				state.RoamPoints[npc] = state.RoamPoints[npc] or {}
 				table.insert(state.RoamPoints[npc], myRoot.Position)
-				if #state.RoamPoints[npc] > 2 then
-					table.remove(state.RoamPoints[npc], 1)
-				end
+				
 				state.CurrentRoamIndex[npc] = 1
 			end
 		end
@@ -717,6 +773,26 @@ local function handleCommand(player, msg)
 			if npc then
 				state.RoamPoints[npc] = nil
 			end
+		end
+	elseif cmd == "self" and args[2] == "defense" then
+		state.SelfDefense = not state.SelfDefense
+		notify("Self Defense", state.SelfDefense and "ON" or "OFF")
+	elseif cmd == "orbit" and args[2] == "speed" and args[3] then
+		state.OrbitSpeed = tonumber(args[3]) or 1
+		notify("Orbit Speed", "Set to " .. state.OrbitSpeed)
+	elseif cmd == "nanfling" and args[2] then
+		local target = getPlayer(args[2])
+		if target then
+			state.Mode = "NanFling"
+			state.NanFlingTarget = target
+			notify("NanFling", "Targeting " .. target.Name)
+		end
+	elseif cmd == "fling" and args[2] then
+		local target = getPlayer(args[2])
+		if target then
+			state.Mode = "Fling"
+			state.CurrentTarget = target
+			notify("Fling", "Targeting " .. target.Name)
 		end
 	elseif cmd == "pathfind" and args[2] then
 		local target = getPlayer(args[2])
@@ -1292,7 +1368,7 @@ RunService.Heartbeat:Connect(function()
 				local hum = npc:FindFirstChild("Humanoid")
 				if hrp and hum then
 					hum.PlatformStand = true
-					local angle = (t * 2) + (i * (math.pi * 2 / #ownedNpcs))
+					local angle = (t * 2 * (state.OrbitSpeed or 1)) + (i * (math.pi * 2 / #ownedNpcs))
 					local radius = 10
 					local yOffset = math.sin(t * 3) * 5 + 10
 					local targetPos = issuerRoot.Position + Vector3.new(math.cos(angle) * radius, yOffset, math.sin(angle) * radius)
@@ -1676,7 +1752,7 @@ RunService.Heartbeat:Connect(function()
 				end
 			end
 		end
-	elseif state.Mode ~= "Drag" and state.Mode ~= "StackUp" and state.Mode ~= "Mecha" and state.Mode ~= "Stairs" and state.Mode ~= "Wall" and state.Mode ~= "Find" and state.Mode ~= "UFO" then
+	elseif state.Mode ~= "Drag" and state.Mode ~= "StackUp" and state.Mode ~= "Mecha" and state.Mode ~= "Stairs" and state.Mode ~= "Wall" and state.Mode ~= "Find" and state.Mode ~= "UFO" and state.Mode ~= "NanFling" then
 		for _, npc in ipairs(ownedNpcs) do
 			local hrp = npc:FindFirstChild("HumanoidRootPart")
 			local hum = npc:FindFirstChild("Humanoid")
@@ -1740,6 +1816,50 @@ RunService.Heartbeat:Connect(function()
 			if hrp then
 				local gyro = hrp:FindFirstChild("LookAtGyro")
 				if gyro then gyro:Destroy() end
+			end
+		end
+	end
+
+	
+	-- Self Defense & Fling Logic
+	for _, npc in ipairs(ownedNpcs) do
+		local hrp = npc:FindFirstChild("HumanoidRootPart")
+		if hrp then
+			local isFlingMode = (state.Mode == "Fling")
+			local shouldFling = state.SelfDefense or isFlingMode
+			
+			if shouldFling then
+				-- We apply fling velocity directly inside heartbeat to ensure physics replication
+				local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+				for _, p in ipairs(Players:GetPlayers()) do
+					if p ~= LocalPlayer and p.Character then
+						local tRoot = p.Character:FindFirstChild("HumanoidRootPart")
+						local hum = p.Character:FindFirstChild("Humanoid")
+						if tRoot and hum and hum.Health > 0 then
+							if (hrp.Position - tRoot.Position).Magnitude < 4 then
+								-- Fling them
+								hrp.Velocity = Vector3.new(0, 15000, 0)
+								hrp.RotVelocity = Vector3.new(15000, 15000, 15000)
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+
+	-- NanFling Mode
+	if state.Mode == "NanFling" and state.NanFlingTarget and state.NanFlingTarget.Character then
+		local tRoot = state.NanFlingTarget.Character:FindFirstChild("HumanoidRootPart")
+		if tRoot then
+			for _, npc in ipairs(ownedNpcs) do
+				local hrp = npc:FindFirstChild("HumanoidRootPart")
+				if hrp then
+					hrp.CanCollide = false
+					hrp.CFrame = tRoot.CFrame
+					hrp.Velocity = Vector3.new(0/0, 0/0, 0/0) -- NaN velocity forces extreme physics recalculation / fling
+					hrp.RotVelocity = Vector3.new(9e9, 9e9, 9e9)
+				end
 			end
 		end
 	end
