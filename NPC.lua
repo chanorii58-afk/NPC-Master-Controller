@@ -40,6 +40,8 @@ local state = {
 	SelfDefense = false,
 	ShowRadius = false,
 	NanFlingTarget = nil,
+	GlobalAttackTarget = nil,
+	GlobalFreeze = false,
 	PossessedNPC = nil,
 	BlueNPC = nil,
 	RedNPC = nil,
@@ -481,6 +483,53 @@ btnKillRadius.MouseButton1Click:Connect(function()
 		notify("Kill", "Killed " .. count .. " NPCs nearby.")
 	end
 end)
+
+local btnKillLocal = createButton("Kill Local (2 Studs)")
+btnKillLocal.BackgroundColor3 = Color3.fromRGB(150, 80, 50)
+btnKillLocal.MouseButton1Click:Connect(function()
+	local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+	if myRoot then
+		local count = 0
+		for _, npc in ipairs(getNPCs()) do
+			local hrp = npc:FindFirstChild("HumanoidRootPart")
+			local hum = npc:FindFirstChild("Humanoid")
+			if hrp and hum and hum.Health > 0 then
+				if (hrp.Position - myRoot.Position).Magnitude <= 2.5 then
+					local success, owner = pcall(function() return hrp:GetNetworkOwner() end)
+					if success and owner ~= nil then
+						hum.Health = 0
+						count = count + 1
+					end
+				end
+			end
+		end
+		notify("Kill Local", "Killed " .. count .. " owned NPCs nearby.")
+	end
+end)
+
+local btnKillPassive = createButton("Kill Passive (900 Studs)")
+btnKillPassive.BackgroundColor3 = Color3.fromRGB(150, 50, 80)
+btnKillPassive.MouseButton1Click:Connect(function()
+	local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+	if myRoot then
+		local count = 0
+		for _, npc in ipairs(getNPCs()) do
+			local hrp = npc:FindFirstChild("HumanoidRootPart")
+			local hum = npc:FindFirstChild("Humanoid")
+			if hrp and hum and hum.Health > 0 then
+				if (hrp.Position - myRoot.Position).Magnitude <= 900 then
+					local success, owner = pcall(function() return hrp:GetNetworkOwner() end)
+					if success and owner == nil then
+						hum.Health = 0
+						count = count + 1
+					end
+				end
+				end
+			end
+			notify("Kill Passive", "Killed " .. count .. " unowned NPCs.")
+		end
+	end
+end)
 local Spacer2 = Instance.new("Frame")
 Spacer2.Size = UDim2.new(1, 0, 0, 10)
 Spacer2.BackgroundTransparency = 1
@@ -604,6 +653,9 @@ local cmdListText = {
 	"lapse blue - Gojo Lapse Blue",
 	"reversal red - Gojo Reversal Red",
 	"hollow purple - Combine Blue and Red",
+	"!attack [display] - All NPCs attack target",
+	"!freeze - Freeze all NPCs",
+	"!unfreeze - Unfreeze all NPCs",
 	"tp [id] - Teleport to NPC",
 	"posses [id] - Take control of NPC",
 	"unposses - Stop possessing",
@@ -976,6 +1028,22 @@ local function handleCommand(player, msg)
 		else
 			notify("JJK", "Need both Blue and Red active!")
 		end
+	elseif cmd == "!attack" and args[2] then
+		local target = getPlayer(table.concat(args, " ", 2))
+		if target then
+			state.GlobalAttackTarget = target
+			notify("Global Attack", "All NPCs attacking " .. target.Name)
+		end
+	elseif cmd == "!freeze" then
+		state.GlobalFreeze = true
+		notify("Global Freeze", "All NPCs frozen")
+	elseif cmd == "!unfreeze" then
+		state.GlobalFreeze = false
+		for _, npc in ipairs(getNPCs()) do
+			local hrp = npc:FindFirstChild("HumanoidRootPart")
+			if hrp then hrp.Anchored = false end
+		end
+		notify("Global Freeze", "All NPCs unfrozen")
 	elseif cmd == "self" and args[2] == "defense" then
 		state.SelfDefense = not state.SelfDefense
 		notify("Self Defense", state.SelfDefense and "ON" or "OFF")
@@ -1600,6 +1668,29 @@ RunService.Heartbeat:Connect(function()
 				state.PurplePhase = 0
 				state.BlueNPC = nil
 				state.RedNPC = nil
+			end
+		end
+	end
+
+	-- Global Overrides (!attack and !freeze)
+	if state.GlobalFreeze or state.GlobalAttackTarget then
+		local allNPCs = getNPCs()
+		local gTargetRoot = state.GlobalAttackTarget and state.GlobalAttackTarget.Character and state.GlobalAttackTarget.Character:FindFirstChild("HumanoidRootPart")
+		
+		for _, npc in ipairs(allNPCs) do
+			local hrp = npc:FindFirstChild("HumanoidRootPart")
+			local hum = npc:FindFirstChild("Humanoid")
+			if hrp and hum and hum.Health > 0 and not state.IsOverridden[npc] then
+				if state.GlobalFreeze then
+					hrp.Anchored = true
+				elseif gTargetRoot then
+					hrp.Anchored = false
+					hum:MoveTo(gTargetRoot.Position)
+					local objTarget = npc:FindFirstChild("Target") or npc:FindFirstChild("target")
+					if objTarget and objTarget:IsA("ObjectValue") then
+						objTarget.Value = state.GlobalAttackTarget.Character
+					end
+				end
 			end
 		end
 	end
