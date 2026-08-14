@@ -39,7 +39,19 @@ local state = {
 	OrbitSpeed = 1,
 	SelfDefense = false,
 	ShowRadius = false,
-	NanFlingTarget = nil
+	NanFlingTarget = nil,
+	PossessedNPC = nil,
+	BlueNPC = nil,
+	RedNPC = nil,
+	PurplePhase = 0,
+	PurpleTick = 0,
+	PurpleStartCFrame = nil,
+	PossessedNPC = nil,
+	BlueNPC = nil,
+	RedNPC = nil,
+	PurplePhase = 0,
+	PurpleTick = 0,
+	PurpleStartCFrame = nil
 }
 
 -- ==========================================
@@ -283,8 +295,8 @@ local function getPlayer(nameStr)
 	for _, p in ipairs(Players:GetPlayers()) do
 		local pName = p.Name and string.lower(p.Name) or ""
 		local pDisp = p.DisplayName and string.lower(p.DisplayName) or ""
-		if (pName ~= "" and string.sub(pName, 1, #nameStrLower) == nameStrLower) or
-			(pDisp ~= "" and string.sub(pDisp, 1, #nameStrLower) == nameStrLower) then
+		if (pName ~= "" and string.find(pName, nameStrLower, 1, true)) or
+			(pDisp ~= "" and string.find(pDisp, nameStrLower, 1, true)) then
 			return p
 		end
 	end
@@ -299,8 +311,8 @@ local function getPlayersByName(nameStr)
 	for _, p in ipairs(Players:GetPlayers()) do
 		local pName = p.Name and string.lower(p.Name) or ""
 		local pDisp = p.DisplayName and string.lower(p.DisplayName) or ""
-		if (pName ~= "" and string.sub(pName, 1, #nameStrLower) == nameStrLower) or
-			(pDisp ~= "" and string.sub(pDisp, 1, #nameStrLower) == nameStrLower) then
+		if (pName ~= "" and string.find(pName, nameStrLower, 1, true)) or
+			(pDisp ~= "" and string.find(pDisp, nameStrLower, 1, true)) then
 			table.insert(matches, p)
 		end
 	end
@@ -445,6 +457,54 @@ local btnAntiLag = createToggle("Anti-Lag")
 local btnShowRadius = createToggle("Visible Radius")
 local btnCmdsList = createButton("Show Commands")
 local btnToggleList = createButton("NPC Lists")
+local Spacer2 = Instance.new("Frame")
+Spacer2.Size = UDim2.new(1, 0, 0, 10)
+Spacer2.BackgroundTransparency = 1
+Spacer2.Parent = MainScroll
+
+local btnKillRadius = createButton("Kill NPCs (2 Studs)")
+btnKillRadius.BackgroundColor3 = Color3.fromRGB(150, 50, 50)
+btnKillRadius.MouseButton1Click:Connect(function()
+	local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+	if myRoot then
+		local count = 0
+		for _, npc in ipairs(getNPCs()) do
+			local hrp = npc:FindFirstChild("HumanoidRootPart")
+			local hum = npc:FindFirstChild("Humanoid")
+			if hrp and hum and hum.Health > 0 then
+				if (hrp.Position - myRoot.Position).Magnitude <= 2.5 then
+					hum.Health = 0
+					count = count + 1
+				end
+			end
+		end
+		notify("Kill", "Killed " .. count .. " NPCs nearby.")
+	end
+end)
+local Spacer2 = Instance.new("Frame")
+Spacer2.Size = UDim2.new(1, 0, 0, 10)
+Spacer2.BackgroundTransparency = 1
+Spacer2.Parent = MainScroll
+
+local btnKillRadius = createButton("Kill NPCs (2 Studs)")
+btnKillRadius.BackgroundColor3 = Color3.fromRGB(150, 50, 50)
+btnKillRadius.MouseButton1Click:Connect(function()
+	local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+	if myRoot then
+		local count = 0
+		for _, npc in ipairs(getNPCs()) do
+			local hrp = npc:FindFirstChild("HumanoidRootPart")
+			local hum = npc:FindFirstChild("Humanoid")
+			if hrp and hum and hum.Health > 0 then
+				if (hrp.Position - myRoot.Position).Magnitude <= 2.5 then
+					hum.Health = 0
+					count = count + 1
+				end
+			end
+		end
+		notify("Kill", "Killed " .. count .. " NPCs nearby.")
+	end
+end)
 
 btnShowRadius.MouseButton1Click:Connect(function()
 	state.ShowRadius = not state.ShowRadius
@@ -537,6 +597,20 @@ local cmdListText = {
 	"fling [player] - Target walks to fling",
 	"nanfling [player] - Teleport inside target and fling",
 	"orbit speed [value] - Adjust UFO/orbit speed",
+	"tp [id] - Teleport to NPC",
+	"posses [id] - Take control of NPC",
+	"unposses - Stop possessing",
+	"star - Orbit in star shape",
+	"lapse blue - Gojo Lapse Blue",
+	"reversal red - Gojo Reversal Red",
+	"hollow purple - Combine Blue and Red",
+	"tp [id] - Teleport to NPC",
+	"posses [id] - Take control of NPC",
+	"unposses - Stop possessing",
+	"star - Orbit in star shape",
+	"lapse blue - Gojo Lapse Blue",
+	"reversal red - Gojo Reversal Red",
+	"hollow purple - Combine Blue and Red",
 
 	"attack [player] - Attack target",
 	"makeway - Move away from you",
@@ -691,14 +765,14 @@ local function handleCommand(player, msg)
 		local npcId = tonumber(cmd)
 		local subCmd = args[2]
 		if subCmd == "follow" and args[3] then
-			local target = getPlayer(args[3])
+			local target = getPlayer(table.concat(args, " ", 3))
 			local npc = getNPCById(npcId)
 			if target and npc then
 				state.SpecificFollow[npc] = target
 				notify("Follow", "NPC " .. npcId .. " following " .. target.Name)
 			end
 		elseif subCmd == "goto" and args[3] then
-			local target = getPlayer(args[3])
+			local target = getPlayer(table.concat(args, " ", 3))
 			local npc = getNPCById(npcId)
 			if target and npc and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
 				local tRoot = target.Character.HumanoidRootPart
@@ -708,7 +782,7 @@ local function handleCommand(player, msg)
 				end
 			end
 		elseif subCmd == "tempgoto" and args[3] then
-			local target = getPlayer(args[3])
+			local target = getPlayer(table.concat(args, " ", 3))
 			local npc = getNPCById(npcId)
 			if target and npc and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
 				task.spawn(function()
@@ -730,7 +804,7 @@ local function handleCommand(player, msg)
 
 
 	if cmd == ".givecommand" and player == LocalPlayer then
-		local target = getPlayer(args[2])
+		local target = getPlayer(table.concat(args, " ", 2))
 		local permCmd = args[3]
 		if target and permCmd then
 			if not permissions[target.UserId] then
@@ -740,7 +814,7 @@ local function handleCommand(player, msg)
 			notify("Permission", "Gave " .. target.Name .. " access to: " .. permCmd)
 		end
 	elseif cmd == ".stripcommand" and player == LocalPlayer then
-		local target = getPlayer(args[2])
+		local target = getPlayer(table.concat(args, " ", 2))
 		local permCmd = args[3]
 		if target and permCmd and permissions[target.UserId] then
 			permissions[target.UserId][permCmd] = nil
@@ -776,6 +850,132 @@ local function handleCommand(player, msg)
 				state.RoamPoints[npc] = nil
 			end
 		end
+	elseif cmd == "tp" and args[2] then
+		local npcId = tonumber(args[2])
+		if npcId then
+			local npc = getNPCById(npcId)
+			local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+			if npc and myRoot and npc:FindFirstChild("HumanoidRootPart") then
+				myRoot.CFrame = npc.HumanoidRootPart.CFrame
+				notify("TP", "Teleported to NPC " .. npcId)
+			end
+		end
+	elseif cmd == "posses" and args[2] then
+		local npcId = tonumber(args[2])
+		if npcId then
+			local npc = getNPCById(npcId)
+			if npc and npc:FindFirstChild("Humanoid") then
+				state.PossessedNPC = npc
+				notify("Possess", "Possessing NPC " .. npcId)
+			end
+		end
+	elseif cmd == "unposses" then
+		state.PossessedNPC = nil
+		if workspace.CurrentCamera and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+			workspace.CurrentCamera.CameraSubject = LocalPlayer.Character.Humanoid
+		end
+		notify("Possess", "Unpossessed")
+	elseif cmd == "star" then
+		state.Mode = "Star"
+		state.Follow = false
+		state.CommandIssuer = player
+	elseif cmd == "lapse" and args[2] == "blue" then
+		local npc = nil
+		for _, n in ipairs(getNPCs()) do
+			if n ~= state.RedNPC and n ~= state.BlueNPC and not state.StayingNPCs[n] then
+				npc = n
+				break
+			end
+		end
+		if npc then
+			state.BlueNPC = npc
+			state.PurplePhase = 0
+			notify("JJK", "Lapse Blue initiated")
+		end
+	elseif cmd == "reversal" and args[2] == "red" then
+		local npc = nil
+		for _, n in ipairs(getNPCs()) do
+			if n ~= state.RedNPC and n ~= state.BlueNPC and not state.StayingNPCs[n] then
+				npc = n
+				break
+			end
+		end
+		if npc then
+			state.RedNPC = npc
+			state.PurplePhase = 0
+			notify("JJK", "Reversal Red initiated")
+		end
+	elseif cmd == "hollow" and args[2] == "purple" then
+		if state.BlueNPC and state.RedNPC then
+			state.PurplePhase = 1
+			state.PurpleTick = tick()
+			notify("JJK", "Hollow Purple combining!")
+		else
+			notify("JJK", "Need both Blue and Red active!")
+		end
+	elseif cmd == "tp" and args[2] then
+		local npcId = tonumber(args[2])
+		if npcId then
+			local npc = getNPCById(npcId)
+			local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+			if npc and myRoot and npc:FindFirstChild("HumanoidRootPart") then
+				myRoot.CFrame = npc.HumanoidRootPart.CFrame
+				notify("TP", "Teleported to NPC " .. npcId)
+			end
+		end
+	elseif cmd == "posses" and args[2] then
+		local npcId = tonumber(args[2])
+		if npcId then
+			local npc = getNPCById(npcId)
+			if npc and npc:FindFirstChild("Humanoid") then
+				state.PossessedNPC = npc
+				notify("Possess", "Possessing NPC " .. npcId)
+			end
+		end
+	elseif cmd == "unposses" then
+		state.PossessedNPC = nil
+		if workspace.CurrentCamera and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+			workspace.CurrentCamera.CameraSubject = LocalPlayer.Character.Humanoid
+		end
+		notify("Possess", "Unpossessed")
+	elseif cmd == "star" then
+		state.Mode = "Star"
+		state.Follow = false
+		state.CommandIssuer = player
+	elseif cmd == "lapse" and args[2] == "blue" then
+		local npc = nil
+		for _, n in ipairs(getNPCs()) do
+			if n ~= state.RedNPC and n ~= state.BlueNPC and not state.StayingNPCs[n] then
+				npc = n
+				break
+			end
+		end
+		if npc then
+			state.BlueNPC = npc
+			state.PurplePhase = 0
+			notify("JJK", "Lapse Blue initiated")
+		end
+	elseif cmd == "reversal" and args[2] == "red" then
+		local npc = nil
+		for _, n in ipairs(getNPCs()) do
+			if n ~= state.RedNPC and n ~= state.BlueNPC and not state.StayingNPCs[n] then
+				npc = n
+				break
+			end
+		end
+		if npc then
+			state.RedNPC = npc
+			state.PurplePhase = 0
+			notify("JJK", "Reversal Red initiated")
+		end
+	elseif cmd == "hollow" and args[2] == "purple" then
+		if state.BlueNPC and state.RedNPC then
+			state.PurplePhase = 1
+			state.PurpleTick = tick()
+			notify("JJK", "Hollow Purple combining!")
+		else
+			notify("JJK", "Need both Blue and Red active!")
+		end
 	elseif cmd == "self" and args[2] == "defense" then
 		state.SelfDefense = not state.SelfDefense
 		notify("Self Defense", state.SelfDefense and "ON" or "OFF")
@@ -783,21 +983,21 @@ local function handleCommand(player, msg)
 		state.OrbitSpeed = tonumber(args[3]) or 1
 		notify("Orbit Speed", "Set to " .. state.OrbitSpeed)
 	elseif cmd == "nanfling" and args[2] then
-		local target = getPlayer(args[2])
+		local target = getPlayer(table.concat(args, " ", 2))
 		if target then
 			state.Mode = "NanFling"
 			state.NanFlingTarget = target
 			notify("NanFling", "Targeting " .. target.Name)
 		end
 	elseif cmd == "fling" and args[2] then
-		local target = getPlayer(args[2])
+		local target = getPlayer(table.concat(args, " ", 2))
 		if target then
 			state.Mode = "Fling"
 			state.CurrentTarget = target
 			notify("Fling", "Targeting " .. target.Name)
 		end
 	elseif cmd == "pathfind" and args[2] then
-		local target = getPlayer(args[2])
+		local target = getPlayer(table.concat(args, " ", 2))
 		if target then
 			state.Mode = "Pathfind"
 			state.PathfindTarget = target
@@ -818,7 +1018,7 @@ local function handleCommand(player, msg)
 			end
 		end
 	elseif cmd == "attack" and args[2] then
-		local target = getPlayer(args[2])
+		local target = getPlayer(table.concat(args, " ", 2))
 		if target and target.Character then
 			state.CurrentTarget = target
 			state.Mode = "Attack"
@@ -827,9 +1027,9 @@ local function handleCommand(player, msg)
 			if player == LocalPlayer then btnFollow.Text = "Follow Me: OFF" end
 		end
 	elseif cmd == "look" and args[2] == "at" and args[3] then
-		local target = getPlayer(args[3])
+		local target = getPlayer(table.concat(args, " ", 3))
 		if target then
-			state.CurrentTargetName = args[3]
+			state.CurrentTargetName = table.concat(args, " ", 3)
 			state.Mode = "LookAt"
 			state.Follow = false
 			state.CommandIssuer = player
@@ -986,7 +1186,7 @@ local function handleCommand(player, msg)
 		if player == LocalPlayer then btnFollow.Text = "Follow Me: OFF" end
 	elseif cmd == "find" and args[2] then
 		state.Mode = "Find"
-		state.CurrentTargetName = args[2]
+		state.CurrentTargetName = table.concat(args, " ", 2)
 		state.Follow = false
 		state.CommandIssuer = player
 		if player == LocalPlayer then btnFollow.Text = "Follow Me: OFF" end
@@ -1250,6 +1450,160 @@ RunService.Heartbeat:Connect(function()
 	end
 
 	
+	-- Handle Possession
+	if state.PossessedNPC and state.PossessedNPC.Parent and state.PossessedNPC:FindFirstChild("Humanoid") then
+		local myChar = LocalPlayer.Character
+		local myHum = myChar and myChar:FindFirstChild("Humanoid")
+		if myHum and workspace.CurrentCamera then
+			myHum.WalkSpeed = 0
+			myHum.JumpPower = 0
+			workspace.CurrentCamera.CameraSubject = state.PossessedNPC.Humanoid
+			state.PossessedNPC.Humanoid:Move(myHum.MoveDirection, false)
+			state.PossessedNPC.Humanoid.Jump = myHum.Jump
+		end
+	else
+		if not state.PossessedNPC and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+			local myHum = LocalPlayer.Character.Humanoid
+			if myHum.WalkSpeed == 0 then
+				myHum.WalkSpeed = 16
+				myHum.JumpPower = 50
+			end
+		end
+	end
+
+	-- Handle Gojo Animations
+	local t = tick()
+	if state.BlueNPC and state.BlueNPC.Parent then
+		local hrp = state.BlueNPC:FindFirstChild("HumanoidRootPart")
+		local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+		if hrp and myRoot then
+			state.BlueNPC.Humanoid.PlatformStand = true
+			if state.PurplePhase == 0 then
+				local targetPos = myRoot.CFrame * CFrame.new(-5, 3, -4)
+				hrp.CFrame = hrp.CFrame:Lerp(targetPos * CFrame.Angles(0, t * 5, 0), 0.1)
+				hrp.Velocity = Vector3.zero
+			end
+		end
+	end
+	if state.RedNPC and state.RedNPC.Parent then
+		local hrp = state.RedNPC:FindFirstChild("HumanoidRootPart")
+		local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+		if hrp and myRoot then
+			state.RedNPC.Humanoid.PlatformStand = true
+			if state.PurplePhase == 0 then
+				local targetPos = myRoot.CFrame * CFrame.new(5, 3, -4)
+				hrp.CFrame = hrp.CFrame:Lerp(targetPos * CFrame.Angles(0, t * 200, 0), 0.1)
+				hrp.Velocity = Vector3.zero
+			end
+		end
+	end
+	if state.PurplePhase == 1 and state.BlueNPC and state.RedNPC then
+		local bRoot = state.BlueNPC:FindFirstChild("HumanoidRootPart")
+		local rRoot = state.RedNPC:FindFirstChild("HumanoidRootPart")
+		local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+		if bRoot and rRoot and myRoot then
+			local targetPos = myRoot.CFrame * CFrame.new(0, 4, -6)
+			bRoot.CFrame = bRoot.CFrame:Lerp(targetPos * CFrame.Angles(0, t * 500, 0), 0.05)
+			rRoot.CFrame = rRoot.CFrame:Lerp(targetPos * CFrame.Angles(0, t * 500, 0), 0.05)
+			if tick() - state.PurpleTick > 3 then
+				state.PurplePhase = 2
+				state.PurpleStartCFrame = myRoot.CFrame
+				state.PurpleTick = tick()
+			end
+		end
+	elseif state.PurplePhase == 2 and state.BlueNPC and state.RedNPC then
+		local bRoot = state.BlueNPC:FindFirstChild("HumanoidRootPart")
+		local rRoot = state.RedNPC:FindFirstChild("HumanoidRootPart")
+		if bRoot and rRoot and state.PurpleStartCFrame then
+			local elapsed = (tick() - state.PurpleTick) * 200
+			local targetCFrame = state.PurpleStartCFrame * CFrame.new(0, 4, -6 - elapsed)
+			bRoot.CFrame = targetCFrame * CFrame.Angles(0, t * 500, 0)
+			rRoot.CFrame = targetCFrame * CFrame.Angles(0, t * 500, 0)
+			if elapsed > 400 then
+				state.PurplePhase = 0
+				state.BlueNPC = nil
+				state.RedNPC = nil
+			end
+		end
+	end
+
+	-- Handle Possession
+	if state.PossessedNPC and state.PossessedNPC.Parent and state.PossessedNPC:FindFirstChild("Humanoid") then
+		local myChar = LocalPlayer.Character
+		local myHum = myChar and myChar:FindFirstChild("Humanoid")
+		if myHum and workspace.CurrentCamera then
+			myHum.WalkSpeed = 0
+			myHum.JumpPower = 0
+			workspace.CurrentCamera.CameraSubject = state.PossessedNPC.Humanoid
+			state.PossessedNPC.Humanoid:Move(myHum.MoveDirection, false)
+			state.PossessedNPC.Humanoid.Jump = myHum.Jump
+		end
+	else
+		if not state.PossessedNPC and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+			local myHum = LocalPlayer.Character.Humanoid
+			if myHum.WalkSpeed == 0 then
+				myHum.WalkSpeed = 16
+				myHum.JumpPower = 50
+			end
+		end
+	end
+
+	-- Handle Gojo Animations
+	local t = tick()
+	if state.BlueNPC and state.BlueNPC.Parent then
+		local hrp = state.BlueNPC:FindFirstChild("HumanoidRootPart")
+		local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+		if hrp and myRoot then
+			state.BlueNPC.Humanoid.PlatformStand = true
+			if state.PurplePhase == 0 then
+				local targetPos = myRoot.CFrame * CFrame.new(-5, 3, -4)
+				hrp.CFrame = hrp.CFrame:Lerp(targetPos * CFrame.Angles(0, t * 5, 0), 0.1)
+				hrp.Velocity = Vector3.zero
+			end
+		end
+	end
+	if state.RedNPC and state.RedNPC.Parent then
+		local hrp = state.RedNPC:FindFirstChild("HumanoidRootPart")
+		local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+		if hrp and myRoot then
+			state.RedNPC.Humanoid.PlatformStand = true
+			if state.PurplePhase == 0 then
+				local targetPos = myRoot.CFrame * CFrame.new(5, 3, -4)
+				hrp.CFrame = hrp.CFrame:Lerp(targetPos * CFrame.Angles(0, t * 200, 0), 0.1)
+				hrp.Velocity = Vector3.zero
+			end
+		end
+	end
+	if state.PurplePhase == 1 and state.BlueNPC and state.RedNPC then
+		local bRoot = state.BlueNPC:FindFirstChild("HumanoidRootPart")
+		local rRoot = state.RedNPC:FindFirstChild("HumanoidRootPart")
+		local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+		if bRoot and rRoot and myRoot then
+			local targetPos = myRoot.CFrame * CFrame.new(0, 4, -6)
+			bRoot.CFrame = bRoot.CFrame:Lerp(targetPos * CFrame.Angles(0, t * 500, 0), 0.05)
+			rRoot.CFrame = rRoot.CFrame:Lerp(targetPos * CFrame.Angles(0, t * 500, 0), 0.05)
+			if tick() - state.PurpleTick > 3 then
+				state.PurplePhase = 2
+				state.PurpleStartCFrame = myRoot.CFrame
+				state.PurpleTick = tick()
+			end
+		end
+	elseif state.PurplePhase == 2 and state.BlueNPC and state.RedNPC then
+		local bRoot = state.BlueNPC:FindFirstChild("HumanoidRootPart")
+		local rRoot = state.RedNPC:FindFirstChild("HumanoidRootPart")
+		if bRoot and rRoot and state.PurpleStartCFrame then
+			local elapsed = (tick() - state.PurpleTick) * 200
+			local targetCFrame = state.PurpleStartCFrame * CFrame.new(0, 4, -6 - elapsed)
+			bRoot.CFrame = targetCFrame * CFrame.Angles(0, t * 500, 0)
+			rRoot.CFrame = targetCFrame * CFrame.Angles(0, t * 500, 0)
+			if elapsed > 400 then
+				state.PurplePhase = 0
+				state.BlueNPC = nil
+				state.RedNPC = nil
+			end
+		end
+	end
+
 	-- Pre-process overrides (SpecificFollow, Roam, Mimic)
 	state.IsOverridden = {}
 	for _, npc in ipairs(ownedNpcs) do
@@ -1282,7 +1636,7 @@ RunService.Heartbeat:Connect(function()
 				overriden = true
 			end
 		end
-		state.IsOverridden[npc] = overriden
+		state.IsOverridden[npc] = overriden or npc == state.BlueNPC or npc == state.RedNPC
 	end
 
 	local issuerChar = state.CommandIssuer and state.CommandIssuer.Character
@@ -1417,6 +1771,88 @@ RunService.Heartbeat:Connect(function()
 					else
 						hum:MoveTo(issuerRoot.Position)
 					end
+				end
+			end
+		end
+	elseif state.Mode == "Star" and issuerRoot then
+		local t_star = tick() * (state.OrbitSpeed or 1)
+		for i, npc in ipairs(ownedNpcs) do
+			if not state.StayingNPCs[npc] and not state.IsOverridden[npc] then
+				local hrp = npc:FindFirstChild("HumanoidRootPart")
+				local hum = npc:FindFirstChild("Humanoid")
+				if hrp and hum then
+					hum.PlatformStand = true
+					-- Pentagon/Star angle offset
+					local angle = t_star + (i * 4 * math.pi / #ownedNpcs)
+					local radius = 15
+					local targetPos = issuerRoot.Position + Vector3.new(math.cos(angle) * radius, 5, math.sin(angle) * radius)
+					
+					local alignPos = hrp:FindFirstChild("MechaAlign")
+					if not alignPos then
+						local att = hrp:FindFirstChild("MechaAtt") or Instance.new("Attachment", hrp)
+						att.Name = "MechaAtt"
+						alignPos = Instance.new("AlignPosition")
+						alignPos.Name = "MechaAlign"
+						alignPos.Mode = Enum.PositionAlignmentMode.OneAttachment
+						alignPos.Attachment0 = att
+						alignPos.MaxForce = 1000000
+						alignPos.Responsiveness = 200
+						alignPos.Parent = hrp
+						local alignOri = hrp:FindFirstChild("MechaOri") or Instance.new("AlignOrientation", hrp)
+						alignOri.Name = "MechaOri"
+						alignOri.Mode = Enum.OrientationAlignmentMode.OneAttachment
+						alignOri.Attachment0 = att
+						alignOri.MaxTorque = 1000000
+						alignOri.Responsiveness = 200
+					end
+					alignPos.Position = targetPos
+					local mechaOri = hrp:FindFirstChild("MechaOri")
+					if mechaOri then 
+						mechaOri.CFrame = CFrame.new(hrp.Position, issuerRoot.Position)
+					end
+					hrp.Velocity = Vector3.zero
+					hrp.RotVelocity = Vector3.zero
+				end
+			end
+		end
+	elseif state.Mode == "Star" and issuerRoot then
+		local t_star = tick() * (state.OrbitSpeed or 1)
+		for i, npc in ipairs(ownedNpcs) do
+			if not state.StayingNPCs[npc] and not state.IsOverridden[npc] then
+				local hrp = npc:FindFirstChild("HumanoidRootPart")
+				local hum = npc:FindFirstChild("Humanoid")
+				if hrp and hum then
+					hum.PlatformStand = true
+					-- Pentagon/Star angle offset
+					local angle = t_star + (i * 4 * math.pi / #ownedNpcs)
+					local radius = 15
+					local targetPos = issuerRoot.Position + Vector3.new(math.cos(angle) * radius, 5, math.sin(angle) * radius)
+					
+					local alignPos = hrp:FindFirstChild("MechaAlign")
+					if not alignPos then
+						local att = hrp:FindFirstChild("MechaAtt") or Instance.new("Attachment", hrp)
+						att.Name = "MechaAtt"
+						alignPos = Instance.new("AlignPosition")
+						alignPos.Name = "MechaAlign"
+						alignPos.Mode = Enum.PositionAlignmentMode.OneAttachment
+						alignPos.Attachment0 = att
+						alignPos.MaxForce = 1000000
+						alignPos.Responsiveness = 200
+						alignPos.Parent = hrp
+						local alignOri = hrp:FindFirstChild("MechaOri") or Instance.new("AlignOrientation", hrp)
+						alignOri.Name = "MechaOri"
+						alignOri.Mode = Enum.OrientationAlignmentMode.OneAttachment
+						alignOri.Attachment0 = att
+						alignOri.MaxTorque = 1000000
+						alignOri.Responsiveness = 200
+					end
+					alignPos.Position = targetPos
+					local mechaOri = hrp:FindFirstChild("MechaOri")
+					if mechaOri then 
+						mechaOri.CFrame = CFrame.new(hrp.Position, issuerRoot.Position)
+					end
+					hrp.Velocity = Vector3.zero
+					hrp.RotVelocity = Vector3.zero
 				end
 			end
 		end
@@ -1754,7 +2190,7 @@ RunService.Heartbeat:Connect(function()
 				end
 			end
 		end
-	elseif state.Mode ~= "Drag" and state.Mode ~= "StackUp" and state.Mode ~= "Mecha" and state.Mode ~= "Stairs" and state.Mode ~= "Wall" and state.Mode ~= "Find" and state.Mode ~= "UFO" and state.Mode ~= "NanFling" then
+	elseif state.Mode ~= "Drag" and state.Mode ~= "StackUp" and state.Mode ~= "Mecha" and state.Mode ~= "Stairs" and state.Mode ~= "Wall" and state.Mode ~= "Find" and state.Mode ~= "UFO" and state.Mode ~= "NanFling" and state.Mode ~= "Star" then
 		for _, npc in ipairs(ownedNpcs) do
 			local hrp = npc:FindFirstChild("HumanoidRootPart")
 			local hum = npc:FindFirstChild("Humanoid")
