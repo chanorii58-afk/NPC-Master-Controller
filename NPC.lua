@@ -64,8 +64,8 @@ task.spawn(function()
 	RunService.Heartbeat:Connect(function()
 		pcall(function()
 			if LocalPlayer then
+				local r = state.NetworkRange or math.huge
 				if sethiddenproperty then
-					local r = state.NetworkRange or math.huge
 					sethiddenproperty(LocalPlayer, "SimulationRadius", r)
 					sethiddenproperty(LocalPlayer, "MaxSimulationRadius", r)
 				else
@@ -102,7 +102,7 @@ end)
 local function enforceServerOwnership(hrp)
 	if hrp and hrp:IsA("BasePart") then
 		pcall(function()
-			hrp:SetNetworkOwner(nil) -- nil forces the SERVER to calculate physics
+			if type(hrp.SetNetworkOwner) == "function" then hrp:SetNetworkOwner(nil) end -- nil forces the SERVER to calculate physics
 		end)
 	end
 end
@@ -111,7 +111,7 @@ local function isConnected(npc)
 	local hrp = npc:FindFirstChild("HumanoidRootPart")
 	if not hrp then return false end
 
-	local success, owner = pcall(function() return hrp:GetNetworkOwner() end)
+	local success, owner = pcall(function() if type(getnetworkowner)=="function" then return getnetworkowner(hrp) elseif type(hrp.GetNetworkOwner)=="function" then return hrp:GetNetworkOwner() else error("No NetOwner") end end)
 	if success and owner == nil then
 		return true -- Server owns it
 	end
@@ -484,6 +484,18 @@ btnKillRadius.MouseButton1Click:Connect(function()
 	end
 end)
 
+local function getNetOwnerSafe(hrp)
+	if type(getnetworkowner) == "function" then
+		local s, o = pcall(getnetworkowner, hrp)
+		if s then return o end
+	end
+	if hrp and type(hrp.GetNetworkOwner) == "function" then
+		local s, o = pcall(function() if type(getnetworkowner)=="function" then return getnetworkowner(hrp) elseif type(hrp.GetNetworkOwner)=="function" then return hrp:GetNetworkOwner() else error("No NetOwner") end end)
+		if s then return o end
+	end
+	return nil
+end
+
 local btnKillLocal = createButton("Kill Local (2 Studs)")
 btnKillLocal.BackgroundColor3 = Color3.fromRGB(150, 80, 50)
 btnKillLocal.MouseButton1Click:Connect(function()
@@ -495,8 +507,8 @@ btnKillLocal.MouseButton1Click:Connect(function()
 			local hum = npc:FindFirstChild("Humanoid")
 			if hrp and hum and hum.Health > 0 then
 				if (hrp.Position - myRoot.Position).Magnitude <= 2.5 then
-					local success, owner = pcall(function() return hrp:GetNetworkOwner() end)
-					if success and owner ~= nil then
+					local owner = getNetOwnerSafe(hrp)
+					if owner ~= nil then
 						hum.Health = 0
 						count = count + 1
 					end
@@ -518,40 +530,15 @@ btnKillPassive.MouseButton1Click:Connect(function()
 			local hum = npc:FindFirstChild("Humanoid")
 			if hrp and hum and hum.Health > 0 then
 				if (hrp.Position - myRoot.Position).Magnitude <= 900 then
-					local success, owner = pcall(function() return hrp:GetNetworkOwner() end)
-					if success and owner == nil then
+					local owner = getNetOwnerSafe(hrp)
+					if owner == nil then
 						hum.Health = 0
 						count = count + 1
 					end
 				end
-				end
-			end
-			notify("Kill Passive", "Killed " .. count .. " unowned NPCs.")
-		end
-	end
-end)
-local Spacer2 = Instance.new("Frame")
-Spacer2.Size = UDim2.new(1, 0, 0, 10)
-Spacer2.BackgroundTransparency = 1
-Spacer2.Parent = MainScroll
-
-local btnKillRadius = createButton("Kill NPCs (2 Studs)")
-btnKillRadius.BackgroundColor3 = Color3.fromRGB(150, 50, 50)
-btnKillRadius.MouseButton1Click:Connect(function()
-	local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-	if myRoot then
-		local count = 0
-		for _, npc in ipairs(getNPCs()) do
-			local hrp = npc:FindFirstChild("HumanoidRootPart")
-			local hum = npc:FindFirstChild("Humanoid")
-			if hrp and hum and hum.Health > 0 then
-				if (hrp.Position - myRoot.Position).Magnitude <= 2.5 then
-					hum.Health = 0
-					count = count + 1
-				end
 			end
 		end
-		notify("Kill", "Killed " .. count .. " NPCs nearby.")
+		notify("Kill Passive", "Killed " .. count .. " unowned NPCs.")
 	end
 end)
 
