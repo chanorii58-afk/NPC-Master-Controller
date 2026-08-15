@@ -2387,7 +2387,317 @@ RunService.Heartbeat:Connect(function()
 				end
 			end
 		end
-	elseif state.Mode == "KillNPC"		if targetRoot and targetHum and targetHum.Health > 0 then
+	elseif state.Mode == "AmongUs" then
+		local function updateCD(part, name, text, color)
+			if not part then return end
+			local gui = part:FindFirstChild(name)
+			if text == "" or text == nil then
+				if gui then gui:Destroy() end
+				return
+			end
+			if not gui then
+				gui = Instance.new("BillboardGui")
+				gui.Name = name
+				gui.Size = UDim2.new(0, 80, 0, 20)
+				gui.StudsOffset = Vector3.new(0, 3, 0)
+				gui.AlwaysOnTop = true
+				local lbl = Instance.new("TextLabel")
+				lbl.Name = "Lbl"
+				lbl.Size = UDim2.new(1, 0, 1, 0)
+				lbl.BackgroundTransparency = 1
+				lbl.TextScaled = true
+				lbl.Font = Enum.Font.SourceSansBold
+				lbl.TextColor3 = color or Color3.new(1,1,1)
+				lbl.TextStrokeTransparency = 0
+				lbl.Parent = gui
+				gui.Parent = part
+			end
+			gui.Lbl.Text = text
+		end
+
+		if not state.AUReportCooldown then state.AUReportCooldown = {} end
+		if not state.AUVentCooldown then state.AUVentCooldown = {} end
+
+		local participants = {}
+		for _, n in ipairs(ownedNpcs) do table.insert(participants, n) end
+		if state.JoinedRealPlayers then
+			for _, rp in ipairs(state.JoinedRealPlayers) do
+				if rp.Character then table.insert(participants, rp.Character) end
+			end
+		end
+
+		-- Update Vent CDs
+		if state.AUVents then
+			for _, v in ipairs(state.AUVents) do
+				local vcd = state.AUVentCooldown[v] and math.max(0, math.ceil(state.AUVentCooldown[v] - tick())) or 0
+				updateCD(v, "AUVentCD", vcd > 0 and "Vent: "..vcd.."s" or nil, Color3.new(0.7,0.7,0.7))
+			end
+		end
+
+		if state.AUPhase == "Playing" then
+			local imps = {}
+			local crews = {}
+			for _, npc in ipairs(participants) do
+				if npc:FindFirstChild("Humanoid") and npc.Humanoid.Health > 0 then
+					local role = state.AURoles[npc]
+					if role == "Imposter" then table.insert(imps, npc)
+					elseif role == "Crew" or role == "Engineer" then table.insert(crews, npc) end
+					if not isRealPlayer(npc) then
+						local hl = npc:FindFirstChild("AUHighlight")
+						if not hl then
+							hl = Instance.new("Highlight"); hl.Name = "AUHighlight"; hl.Parent = npc
+						end
+						if role == "Imposter" then hl.FillColor = Color3.fromRGB(255, 0, 0)
+						elseif role == "Engineer" then hl.FillColor = Color3.fromRGB(255, 105, 180)
+						else hl.FillColor = Color3.fromRGB(0, 0, 255) end
+					end
+				else
+					local head = npc:FindFirstChild("Head")
+					if head then updateCD(head, "AUStatusCD", nil) end
+					local hl = npc:FindFirstChild("AUHighlight")
+					if hl then hl:Destroy() end
+				end
+			end
+			
+			local maxTasks = #crews * 3
+			if not state.AUTaskProgress then state.AUTaskProgress = 0 end
+			if maxTasks > 0 and state.AUTaskProgress >= maxTasks then
+				notify("Among Us", "Crewmates finished all tasks and won!")
+				for _, imp in ipairs(imps) do
+					local iHum = imp:FindFirstChild("Humanoid")
+					if iHum then iHum.Health = 0 end
+					imp:BreakJoints()
+				end
+				state.Mode = nil
+			end
+			
+			if state.AUMeetingTriggered then
+				local rep = state.AUMeetingTriggered.reporter
+				local hum = rep:FindFirstChild("Humanoid")
+				if hum and tick() > state.AUMeetingTriggered.nextJump then
+					if not isRealPlayer(rep) then
+						hum.Jump = true
+					end
+					state.AUMeetingTriggered.jumps = state.AUMeetingTriggered.jumps + 1
+					state.AUMeetingTriggered.nextJump = tick() + 0.6
+					if state.AUMeetingTriggered.jumps >= 3 then
+						state.AUPhase = "Meeting"
+						state.AUMeetingStart = tick()
+						state.AUMeetingTriggered = nil
+						local mtgPart = (state.AUCafs and #state.AUCafs > 0) and state.AUCafs[1] or nil
+						local origin = mtgPart and mtgPart.Position or Vector3.new(0,0,0)
+						if not mtgPart then
+							local sum = Vector3.new(0,0,0); local count = 0
+							for _, n in ipairs(participants) do
+								local hrp = n:FindFirstChild("HumanoidRootPart")
+								if hrp and n:FindFirstChild("Humanoid") and n.Humanoid.Health > 0 then sum = sum + hrp.Position; count = count + 1 end
+							end
+							if count > 0 then origin = sum / count end
+						end
+						origin = origin + Vector3.new(0, 3, 0)
+						local alive = {}
+						for _, n in ipairs(participants) do
+							if n:FindFirstChild("HumanoidRootPart") and n:FindFirstChild("Humanoid") and n.Humanoid.Health > 0 then
+								table.insert(alive, n)
+							end
+						end
+						for i, npc in ipairs(alive) do
+							local hrp = npc:FindFirstChild("HumanoidRootPart")
+							local angle = (i / #alive) * math.pi * 2
+							local offset = Vector3.new(math.cos(angle)*15, 0, math.sin(angle)*15)
+							if not isRealPlayer(npc) or npc == LocalPlayer.Character then
+								hrp.CFrame = CFrame.new(origin + offset, origin)
+								hrp.Velocity = Vector3.new(0,0,0)
+							end
+						end
+						for _, n in ipairs(participants) do
+							local head = n:FindFirstChild("Head")
+							if head then updateCD(head, "AUStatusCD", nil) end
+						end
+					end
+				end
+			else
+				local killCooldownRemaining = math.max(0, math.ceil(15 - (tick() - state.AULastKill)))
+				for _, imp in ipairs(imps) do
+					local iHrp = imp:FindFirstChild("HumanoidRootPart")
+					local iHum = imp:FindFirstChild("Humanoid")
+					local head = imp:FindFirstChild("Head")
+					if iHrp and iHum and head then
+						updateCD(head, "AUStatusCD", killCooldownRemaining > 0 and "Kill: "..killCooldownRemaining.."s" or "Kill Ready", Color3.new(1,0,0))
+					end
+				end
+				for _, crew in ipairs(crews) do
+					local cHrp = crew:FindFirstChild("HumanoidRootPart")
+					local head = crew:FindFirstChild("Head")
+					if cHrp and head then
+						local rcd = state.AUReportCooldown[crew] and math.max(0, math.ceil(state.AUReportCooldown[crew] - tick())) or 0
+						local text = ""
+						if rcd > 0 then text = "Report: "..rcd.."s " end
+						if state.AUMove and state.AUMove[crew] and state.AUMove[crew].type == "task" then text = text .. "(Task)" end
+						updateCD(head, "AUStatusCD", text ~= "" and text or nil, Color3.new(0,1,0))
+					end
+				end
+
+				if tick() - state.AULastKill > 15 then
+					for _, imp in ipairs(imps) do
+						local iHrp = imp:FindFirstChild("HumanoidRootPart")
+						local iHum = imp:FindFirstChild("Humanoid")
+						if iHrp and iHum then
+							local nearest = nil
+							local nDist = math.huge
+							for _, crew in ipairs(crews) do
+								local cHrp = crew:FindFirstChild("HumanoidRootPart")
+								if cHrp then
+									local d = (cHrp.Position - iHrp.Position).Magnitude
+									if d < nDist then nDist = d; nearest = crew end
+								end
+							end
+							if nearest and nDist < 30 then
+								if not isRealPlayer(imp) then
+									smartMoveTo(iHum, nearest:FindFirstChild("HumanoidRootPart").Position)
+								end
+								if nDist < 5 then
+									local meetingTriggered = false
+									for _, otherCrew in ipairs(crews) do
+										if otherCrew ~= nearest then
+											local ocHrp = otherCrew:FindFirstChild("HumanoidRootPart")
+											if ocHrp and (ocHrp.Position - iHrp.Position).Magnitude < 30 then
+												local rcd = state.AUReportCooldown[otherCrew] and (state.AUReportCooldown[otherCrew] - tick()) or 0
+												if rcd <= 0 then
+													state.AUMeetingTriggered = {reporter = otherCrew, jumps = 0, nextJump = tick()}
+													state.AUReportCooldown[otherCrew] = tick() + 10
+													meetingTriggered = true
+													break
+												else
+													if not state.AUMove then state.AUMove = {} end
+													state.AUMove[otherCrew] = {tick = tick() + 6, type = "roam", pos = ocHrp.Position + (ocHrp.Position - iHrp.Position).Unit * 50}
+												end
+											end
+										end
+									end
+									local nHum = nearest:FindFirstChild("Humanoid")
+									if nHum then nHum.Health = 0 end
+									nearest:BreakJoints()
+									state.AULastKill = tick()
+								end
+							else
+								if not isRealPlayer(imp) then
+									if not state.AUMove then state.AUMove = {} end
+									if not state.AUMove[imp] or tick() > state.AUMove[imp].tick then
+										if math.random() < 0.2 and state.AUVents and #state.AUVents > 1 then
+											local availableVents = {}
+											for _, v in ipairs(state.AUVents) do
+												if not state.AUVentCooldown[v] or tick() > state.AUVentCooldown[v] then
+													table.insert(availableVents, v)
+												end
+											end
+											if #availableVents > 1 then
+												local vent1 = availableVents[math.random(1, #availableVents)]
+												local vent2 = availableVents[math.random(1, #availableVents)]
+												if vent1 ~= vent2 then
+													state.AUMove[imp] = {tick = tick() + 6, type = "vent", v1 = vent1, v2 = vent2, step = 1}
+												end
+											end
+										end
+										if not state.AUMove[imp] or state.AUMove[imp].type ~= "vent" then
+											state.AUMove[imp] = {tick = tick() + math.random(4, 7), type = "roam", pos = iHrp.Position + Vector3.new(math.random(-50,50), 0, math.random(-50,50))}
+										end
+									end
+									
+									local moveState = state.AUMove[imp]
+									if moveState and moveState.type == "vent" then
+										if moveState.step == 1 then
+											smartMoveTo(iHum, moveState.v1.Position)
+											if (iHrp.Position - moveState.v1.Position).Magnitude < 8 then
+												iHrp.CFrame = moveState.v2.CFrame + Vector3.new(0, 5, 0)
+												state.AUVentCooldown[moveState.v1] = tick() + 10
+												state.AUVentCooldown[moveState.v2] = tick() + 10
+												moveState.step = 2
+											end
+										else
+											smartMoveTo(iHum, iHrp.Position + Vector3.new(math.random(-10,10), 0, math.random(-10,10)))
+										end
+									elseif moveState and moveState.type == "roam" then
+										smartMoveTo(iHum, moveState.pos)
+									end
+								end
+							end
+						end
+					end
+				else
+					for _, imp in ipairs(imps) do
+						local iHrp = imp:FindFirstChild("HumanoidRootPart")
+						local iHum = imp:FindFirstChild("Humanoid")
+						if iHrp and iHum and not isRealPlayer(imp) then
+							if not state.AUMove then state.AUMove = {} end
+							if not state.AUMove[imp] or tick() > state.AUMove[imp].tick then
+								state.AUMove[imp] = {tick = tick() + math.random(3, 6), type = "roam", pos = iHrp.Position + Vector3.new(math.random(-40,40), 0, math.random(-40,40))}
+							end
+							smartMoveTo(iHum, state.AUMove[imp].pos)
+						end
+					end
+				end
+				
+				if not state.AUMove then state.AUMove = {} end
+				for _, crew in ipairs(crews) do
+					local cHrp = crew:FindFirstChild("HumanoidRootPart")
+					local cHum = crew:FindFirstChild("Humanoid")
+					if cHrp and cHum and not isRealPlayer(crew) then
+						if not state.AUMove[crew] or tick() > state.AUMove[crew].tick then
+							if state.AUTasks and #state.AUTasks > 0 and math.random() < 0.7 then
+								local targetTask = state.AUTasks[math.random(1, #state.AUTasks)]
+								state.AUMove[crew] = {tick = tick() + 10, type = "task", target = targetTask, done = false}
+							else
+								state.AUMove[crew] = {tick = tick() + math.random(4, 7), type = "roam", pos = cHrp.Position + Vector3.new(math.random(-40,40), 0, math.random(-40,40))}
+							end
+						end
+						
+						local cState = state.AUMove[crew]
+						if cState.type == "task" then
+							smartMoveTo(cHum, cState.target.Position)
+							if not cState.done and (cHrp.Position - cState.target.Position).Magnitude < 8 then
+								cState.done = true
+								state.AUTaskProgress = state.AUTaskProgress + 1
+							end
+						else
+							smartMoveTo(cHum, cState.pos)
+						end
+					end
+				end
+			end
+		elseif state.AUPhase == "Meeting" then
+			local mcd = math.max(0, math.ceil(10 - (tick() - state.AUMeetingStart)))
+			local mtgPart = (state.AUCafs and #state.AUCafs > 0) and state.AUCafs[1] or nil
+			if mtgPart then
+				updateCD(mtgPart, "AUMeetingCD", mcd > 0 and ("Voting: "..mcd.."s") or nil, Color3.new(1,1,0))
+			end
+			for _, npc in ipairs(participants) do
+				local hrp = npc:FindFirstChild("HumanoidRootPart")
+				if hrp and npc:FindFirstChild("Humanoid") and npc.Humanoid.Health > 0 then
+					if not isRealPlayer(npc) or npc == LocalPlayer.Character then
+						hrp.Velocity = Vector3.new(0,0,0)
+						hrp.RotVelocity = Vector3.new(0,0,0)
+					end
+				end
+			end
+			if tick() - state.AUMeetingStart > 10 then
+				if mtgPart then updateCD(mtgPart, "AUMeetingCD", nil) end
+				local alive = {}
+				for _, n in ipairs(participants) do
+					if n:FindFirstChild("Humanoid") and n.Humanoid.Health > 0 then table.insert(alive, n) end
+				end
+				if #alive > 0 then
+					local victim = alive[math.random(1, #alive)]
+					local vHum = victim:FindFirstChild("Humanoid")
+					if vHum then vHum.Health = 0 end
+					victim:BreakJoints()
+					notify("Among Us", victim.Name .. " was ejected.")
+				end
+				state.AUPhase = "Playing"
+				state.AULastKill = tick()
+			end
+		end
+	elseif state.Mode == "KillNPC" and state.KillTargetNPC then		if targetRoot and targetHum and targetHum.Health > 0 then
 			local com = Vector3.new(0,0,0)
 			local acount = 0
 			for _, npc in ipairs(ownedNpcs) do
