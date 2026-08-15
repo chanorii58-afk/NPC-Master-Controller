@@ -1140,12 +1140,34 @@ local function handleCommand(player, msg)
 		local numImps = math.min(3, math.floor(#shuffled / 4))
 		if numImps < 1 then numImps = 1 end
 		local numEng = math.min(2, math.floor(#shuffled / 5))
-		for i = 1, #shuffled do
-			if i <= numImps then state.AURoles[shuffled[i]] = "Imposter"
-			elseif i <= numImps + numEng then state.AURoles[shuffled[i]] = "Engineer"
-			else state.AURoles[shuffled[i]] = "Crew" end
+		local numSheriff = (#shuffled >= 4) and 1 or 0
+		local roleIdx = 1
+		for i=1, numImps do
+			if i == 1 and math.random() > 0.3 then
+				state.AURoles[shuffled[roleIdx]] = "Shapeshifter"
+			else
+				state.AURoles[shuffled[roleIdx]] = "Imposter"
+			end
+			roleIdx = roleIdx + 1
 		end
-		notify("Among Us", "Started with " .. numImps .. " imposters.")
+		for i=1, numSheriff do
+			state.AURoles[shuffled[roleIdx]] = "Sheriff"
+			roleIdx = roleIdx + 1
+		end
+		for i=1, numEng do
+			state.AURoles[shuffled[roleIdx]] = "Engineer"
+			roleIdx = roleIdx + 1
+		end
+		while roleIdx <= #shuffled do
+			state.AURoles[shuffled[roleIdx]] = "Crew"
+			roleIdx = roleIdx + 1
+		end
+		state.AUFooled = {}
+		state.AUSheriffChase = {}
+		state.AUSheriffImmunity = {}
+		state.AUShifted = {}
+		state.AUShapeCooldown = {}
+		notify("Among Us", "Started with " .. numImps .. " imposters/shapeshifters and " .. numSheriff .. " sheriff.")
 	elseif cmd == "!stop" and args[2] == "game" then
 		state.Mode = nil
 		state.GlobalFreeze = false
@@ -2417,6 +2439,11 @@ RunService.Heartbeat:Connect(function()
 
 		if not state.AUReportCooldown then state.AUReportCooldown = {} end
 		if not state.AUVentCooldown then state.AUVentCooldown = {} end
+		if not state.AUShapeCooldown then state.AUShapeCooldown = {} end
+		if not state.AUShifted then state.AUShifted = {} end
+		if not state.AUSheriffChase then state.AUSheriffChase = {} end
+		if not state.AUSheriffImmunity then state.AUSheriffImmunity = {} end
+		if not state.AUFooled then state.AUFooled = {} end
 
 		local participants = {}
 		for _, n in ipairs(ownedNpcs) do table.insert(participants, n) end
@@ -2437,17 +2464,29 @@ RunService.Heartbeat:Connect(function()
 		if state.AUPhase == "Playing" then
 			local imps = {}
 			local crews = {}
+			local impsAlive = 0
+			local crewsAlive = 0
+			
 			for _, npc in ipairs(participants) do
-				if npc:FindFirstChild("Humanoid") and npc.Humanoid.Health > 0 then
+				local hum = npc:FindFirstChild("Humanoid")
+				if hum and hum.Health > 0 then
 					local role = state.AURoles[npc]
-					if role == "Imposter" then table.insert(imps, npc)
-					elseif role == "Crew" or role == "Engineer" then table.insert(crews, npc) end
+					if role == "Imposter" or role == "Shapeshifter" then 
+						table.insert(imps, npc)
+						impsAlive = impsAlive + 1
+					elseif role == "Crew" or role == "Engineer" or role == "Sheriff" then 
+						table.insert(crews, npc) 
+						crewsAlive = crewsAlive + 1
+					end
+					
 					if not isRealPlayer(npc) then
 						local hl = npc:FindFirstChild("AUHighlight")
 						if not hl then
 							hl = Instance.new("Highlight"); hl.Name = "AUHighlight"; hl.Parent = npc
 						end
 						if role == "Imposter" then hl.FillColor = Color3.fromRGB(255, 0, 0)
+						elseif role == "Shapeshifter" then hl.FillColor = Color3.fromRGB(0, 0, 0)
+						elseif role == "Sheriff" then hl.FillColor = Color3.fromRGB(139, 69, 19)
 						elseif role == "Engineer" then hl.FillColor = Color3.fromRGB(255, 105, 180)
 						else hl.FillColor = Color3.fromRGB(0, 0, 255) end
 					end
@@ -2459,10 +2498,18 @@ RunService.Heartbeat:Connect(function()
 				end
 			end
 			
-			local maxTasks = #crews * 3
+			local maxTasks = crewsAlive * 3
 			if not state.AUTaskProgress then state.AUTaskProgress = 0 end
-			if maxTasks > 0 and state.AUTaskProgress >= maxTasks then
-				notify("Among Us", "Crewmates finished all tasks and won!")
+			
+			-- Win conditions
+			if impsAlive == 0 and #participants > 0 then
+				notify("Among Us", "Crewmates won! All imposters eliminated.")
+				state.Mode = nil
+			elseif impsAlive > 0 and impsAlive >= crewsAlive then
+				notify("Among Us", "Imposters won! They outnumber the crew.")
+				state.Mode = nil
+			elseif maxTasks > 0 and state.AUTaskProgress >= maxTasks then
+				notify("Among Us", "Crewmates won by completing all tasks!")
 				for _, imp in ipairs(imps) do
 					local iHum = imp:FindFirstChild("Humanoid")
 					if iHum then iHum.Health = 0 end
@@ -2471,13 +2518,19 @@ RunService.Heartbeat:Connect(function()
 				state.Mode = nil
 			end
 			
-			if state.AUMeetingTriggered then
+			if state.Mode == nil then
+				-- Cleanup UI on win
+				for _, npc in ipairs(participants) do
+					local head = npc:FindFirstChild("Head")
+					if head then updateCD(head, "AUStatusCD", nil) end
+					local hl = npc:FindFirstChild("AUHighlight")
+					if hl then hl:Destroy() end
+				end
+			elseif state.AUMeetingTriggered then
 				local rep = state.AUMeetingTriggered.reporter
 				local hum = rep:FindFirstChild("Humanoid")
 				if hum and tick() > state.AUMeetingTriggered.nextJump then
-					if not isRealPlayer(rep) then
-						hum.Jump = true
-					end
+					if not isRealPlayer(rep) then hum.Jump = true end
 					state.AUMeetingTriggered.jumps = state.AUMeetingTriggered.jumps + 1
 					state.AUMeetingTriggered.nextJump = tick() + 0.6
 					if state.AUMeetingTriggered.jumps >= 3 then
@@ -2523,18 +2576,58 @@ RunService.Heartbeat:Connect(function()
 					local iHum = imp:FindFirstChild("Humanoid")
 					local head = imp:FindFirstChild("Head")
 					if iHrp and iHum and head then
-						updateCD(head, "AUStatusCD", killCooldownRemaining > 0 and "Kill: "..killCooldownRemaining.."s" or "Kill Ready", Color3.new(1,0,0))
+						local text = killCooldownRemaining > 0 and ("Kill: "..killCooldownRemaining.."s") or "Kill Ready"
+						local color = Color3.new(1,0,0)
+						if state.AURoles[imp] == "Shapeshifter" then
+							local shiftCd = state.AUShapeCooldown[imp] and math.max(0, math.ceil(state.AUShapeCooldown[imp] - tick())) or 0
+							local shifted = state.AUShifted[imp] and math.max(0, math.ceil(state.AUShifted[imp] - tick())) or 0
+							if shifted > 0 then
+								text = "Shifted: " .. shifted .. "s"
+								color = Color3.new(0,0,0)
+							elseif shiftCd > 0 then
+								text = text .. " | Shift: " .. shiftCd .. "s"
+							else
+								text = text .. " | Shift Ready"
+							end
+							
+							-- Auto activate shapeshifter for NPCs
+							if not isRealPlayer(imp) and shifted <= 0 and shiftCd <= 0 and math.random() < 0.05 then
+								state.AUShifted[imp] = tick() + 6
+								state.AUShapeCooldown[imp] = tick() + 18 -- 6s active + 12s cooldown
+								local numFool = math.random(1, 4)
+								for i=1, numFool do
+									if #crews > 0 then
+										state.AUFooled[crews[math.random(1, #crews)]] = true
+									end
+								end
+							end
+						end
+						updateCD(head, "AUStatusCD", text, color)
 					end
 				end
+				
 				for _, crew in ipairs(crews) do
 					local cHrp = crew:FindFirstChild("HumanoidRootPart")
 					local head = crew:FindFirstChild("Head")
 					if cHrp and head then
-						local rcd = state.AUReportCooldown[crew] and math.max(0, math.ceil(state.AUReportCooldown[crew] - tick())) or 0
 						local text = ""
-						if rcd > 0 then text = "Report: "..rcd.."s " end
-						if state.AUMove and state.AUMove[crew] and state.AUMove[crew].type == "task" then text = text .. "(Task)" end
-						updateCD(head, "AUStatusCD", text ~= "" and text or nil, Color3.new(0,1,0))
+						if state.AURoles[crew] == "Sheriff" then
+							local chase = state.AUSheriffChase[crew]
+							local immunity = state.AUSheriffImmunity[crew]
+							if immunity and tick() < immunity then
+								text = "Immunity: " .. math.ceil(immunity - tick()) .. "s "
+							end
+							if chase and tick() < chase.expires then
+								text = text .. "(Chasing!)"
+							end
+							local color = Color3.fromRGB(139, 69, 19)
+							updateCD(head, "AUStatusCD", text ~= "" and text or nil, color)
+						else
+							local rcd = state.AUReportCooldown[crew] and math.max(0, math.ceil(state.AUReportCooldown[crew] - tick())) or 0
+							if rcd > 0 then text = "Report: "..rcd.."s " end
+							if state.AUMove and state.AUMove[crew] and state.AUMove[crew].type == "task" then text = text .. "(Task)" end
+							updateCD(head, "AUStatusCD", text ~= "" and text or nil, Color3.new(0,1,0))
+						end
 					end
 				end
 
@@ -2548,6 +2641,9 @@ RunService.Heartbeat:Connect(function()
 							for _, crew in ipairs(crews) do
 								local cHrp = crew:FindFirstChild("HumanoidRootPart")
 								if cHrp then
+									local immunity = state.AUSheriffImmunity[crew]
+									if immunity and tick() < immunity then continue end -- Cannot target immune sheriff
+									
 									local d = (cHrp.Position - iHrp.Position).Magnitude
 									if d < nDist then nDist = d; nearest = crew end
 								end
@@ -2561,16 +2657,22 @@ RunService.Heartbeat:Connect(function()
 									for _, otherCrew in ipairs(crews) do
 										if otherCrew ~= nearest then
 											local ocHrp = otherCrew:FindFirstChild("HumanoidRootPart")
-											if ocHrp and (ocHrp.Position - iHrp.Position).Magnitude < 30 then
-												local rcd = state.AUReportCooldown[otherCrew] and (state.AUReportCooldown[otherCrew] - tick()) or 0
-												if rcd <= 0 then
-													state.AUMeetingTriggered = {reporter = otherCrew, jumps = 0, nextJump = tick()}
-													state.AUReportCooldown[otherCrew] = tick() + 10
-													meetingTriggered = true
-													break
+											if ocHrp and (ocHrp.Position - iHrp.Position).Magnitude < 40 then
+												if state.AURoles[otherCrew] == "Sheriff" then
+													state.AUSheriffChase[otherCrew] = {target = imp, expires = tick() + 8}
+													state.AUSheriffImmunity[otherCrew] = tick() + 6
+													-- Sheriff doesn't report immediately, they hunt
 												else
-													if not state.AUMove then state.AUMove = {} end
-													state.AUMove[otherCrew] = {tick = tick() + 6, type = "roam", pos = ocHrp.Position + (ocHrp.Position - iHrp.Position).Unit * 50}
+													local rcd = state.AUReportCooldown[otherCrew] and (state.AUReportCooldown[otherCrew] - tick()) or 0
+													if rcd <= 0 then
+														state.AUMeetingTriggered = {reporter = otherCrew, jumps = 0, nextJump = tick()}
+														state.AUReportCooldown[otherCrew] = tick() + 10
+														meetingTriggered = true
+														break
+													else
+														if not state.AUMove then state.AUMove = {} end
+														state.AUMove[otherCrew] = {tick = tick() + 6, type = "roam", pos = ocHrp.Position + (ocHrp.Position - iHrp.Position).Unit * 50}
+													end
 												end
 											end
 										end
@@ -2643,24 +2745,43 @@ RunService.Heartbeat:Connect(function()
 					local cHrp = crew:FindFirstChild("HumanoidRootPart")
 					local cHum = crew:FindFirstChild("Humanoid")
 					if cHrp and cHum and not isRealPlayer(crew) then
-						if not state.AUMove[crew] or tick() > state.AUMove[crew].tick then
-							if state.AUTasks and #state.AUTasks > 0 and math.random() < 0.7 then
-								local targetTask = state.AUTasks[math.random(1, #state.AUTasks)]
-								state.AUMove[crew] = {tick = tick() + 10, type = "task", target = targetTask, done = false}
-							else
-								state.AUMove[crew] = {tick = tick() + math.random(4, 7), type = "roam", pos = cHrp.Position + Vector3.new(math.random(-40,40), 0, math.random(-40,40))}
-							end
-						end
+						local isSheriff = (state.AURoles[crew] == "Sheriff")
+						local chase = state.AUSheriffChase[crew]
 						
-						local cState = state.AUMove[crew]
-						if cState.type == "task" then
-							smartMoveTo(cHum, cState.target.Position)
-							if not cState.done and (cHrp.Position - cState.target.Position).Magnitude < 8 then
-								cState.done = true
-								state.AUTaskProgress = state.AUTaskProgress + 1
+						if isSheriff and chase and tick() < chase.expires and chase.target and chase.target:FindFirstChild("Humanoid") and chase.target.Humanoid.Health > 0 then
+							-- Sheriff chasing killer
+							local tHrp = chase.target:FindFirstChild("HumanoidRootPart")
+							if tHrp then
+								smartMoveTo(cHum, tHrp.Position)
+								if (cHrp.Position - tHrp.Position).Magnitude < 5 then
+									chase.target.Humanoid.Health = 0
+									chase.target:BreakJoints()
+									notify("Among Us", crew.Name .. " (Sheriff) executed " .. chase.target.Name .. "!")
+									state.AUSheriffChase[crew] = nil
+									state.AULastKill = tick()
+								end
 							end
 						else
-							smartMoveTo(cHum, cState.pos)
+							-- Normal task/roam behavior
+							if not state.AUMove[crew] or tick() > state.AUMove[crew].tick then
+								if state.AUTasks and #state.AUTasks > 0 and math.random() < 0.7 then
+									local targetTask = state.AUTasks[math.random(1, #state.AUTasks)]
+									state.AUMove[crew] = {tick = tick() + 10, type = "task", target = targetTask, done = false}
+								else
+									state.AUMove[crew] = {tick = tick() + math.random(4, 7), type = "roam", pos = cHrp.Position + Vector3.new(math.random(-40,40), 0, math.random(-40,40))}
+								end
+							end
+							
+							local cState = state.AUMove[crew]
+							if cState.type == "task" then
+								smartMoveTo(cHum, cState.target.Position)
+								if not cState.done and (cHrp.Position - cState.target.Position).Magnitude < 8 then
+									cState.done = true
+									state.AUTaskProgress = state.AUTaskProgress + 1
+								end
+							else
+								smartMoveTo(cHum, cState.pos)
+							end
 						end
 					end
 				end
@@ -2681,22 +2802,60 @@ RunService.Heartbeat:Connect(function()
 				end
 			end
 			if tick() - state.AUMeetingStart > 10 then
+				-- FREEZE COOLDOWNS BY SHIFTING TICK()
+				local duration = tick() - state.AUMeetingStart
+				state.AULastKill = state.AULastKill + duration
+				for k, v in pairs(state.AUReportCooldown) do state.AUReportCooldown[k] = v + duration end
+				for k, v in pairs(state.AUVentCooldown) do state.AUVentCooldown[k] = v + duration end
+				for k, v in pairs(state.AUShapeCooldown) do state.AUShapeCooldown[k] = v + duration end
+				for k, v in pairs(state.AUShifted) do state.AUShifted[k] = v + duration end
+				for k, v in pairs(state.AUSheriffImmunity) do state.AUSheriffImmunity[k] = v + duration end
+				for k, v in pairs(state.AUSheriffChase) do v.expires = v.expires + duration end
+
 				if mtgPart then updateCD(mtgPart, "AUMeetingCD", nil) end
 				local alive = {}
 				for _, n in ipairs(participants) do
 					if n:FindFirstChild("Humanoid") and n.Humanoid.Health > 0 then table.insert(alive, n) end
 				end
 				if #alive > 0 then
-					local victim = alive[math.random(1, #alive)]
-					local vHum = victim:FindFirstChild("Humanoid")
-					if vHum then vHum.Health = 0 end
-					victim:BreakJoints()
-					notify("Among Us", victim.Name .. " was ejected.")
+					-- Simulated voting with Fooled logic
+					local votes = {}
+					for _, voter in ipairs(alive) do
+						local validTargets = {}
+						for _, t in ipairs(alive) do
+							if state.AUFooled and state.AUFooled[voter] and state.AURoles[t] == "Shapeshifter" then
+								-- Fooled! Can't vote shapeshifter
+							else
+								table.insert(validTargets, t)
+							end
+						end
+						if #validTargets > 0 then
+							local pick = validTargets[math.random(1, #validTargets)]
+							votes[pick] = (votes[pick] or 0) + 1
+						end
+					end
+					
+					local maxV = -1
+					local victim = nil
+					for t, v in pairs(votes) do
+						if v > maxV then
+							maxV = v
+							victim = t
+						end
+					end
+					
+					if victim then
+						local vHum = victim:FindFirstChild("Humanoid")
+						if vHum then vHum.Health = 0 end
+						victim:BreakJoints()
+						notify("Among Us", victim.Name .. " was ejected.")
+					end
 				end
+				state.AUFooled = {}
 				state.AUPhase = "Playing"
-				state.AULastKill = tick()
 			end
 		end
+
 	elseif state.Mode == "KillNPC" and state.KillTargetNPC then		if targetRoot and targetHum and targetHum.Health > 0 then
 			local com = Vector3.new(0,0,0)
 			local acount = 0
