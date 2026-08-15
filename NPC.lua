@@ -141,6 +141,10 @@ local function enforceServerOwnership(hrp)
 	end
 end
 
+local function isRealPlayer(char)
+	return Players:GetPlayerFromCharacter(char) ~= nil
+end
+
 local function isConnected(npc)
 	local hrp = npc:FindFirstChild("HumanoidRootPart")
 	if not hrp then return false end
@@ -1081,9 +1085,15 @@ local function handleCommand(player, msg)
 		state.MMKiller = nil
 		state.MMChasing = nil
 		state.MMFleeing = {}
-		local npcs = getNPCs()
-		if #npcs > 0 then
-			state.MMKiller = npcs[math.random(1, #npcs)]
+		local participants = {}
+		for _, n in ipairs(getNPCs()) do table.insert(participants, n) end
+		if state.JoinedRealPlayers then
+			for _, rp in ipairs(state.JoinedRealPlayers) do
+				if rp.Character then table.insert(participants, rp.Character) end
+			end
+		end
+		if #participants > 0 then
+			state.MMKiller = participants[math.random(1, #participants)]
 			notify("Murder Mystery", "Game started! Killer selected.")
 		end
 	elseif cmd == "helicopter" then
@@ -1092,14 +1102,37 @@ local function handleCommand(player, msg)
 	elseif cmd == "sphere" then
 		state.Mode = "Sphere"
 		notify("Sphere", "Orbiting in a sphere")
+	elseif cmd == "!join" then
+		if not state.JoinedRealPlayers then state.JoinedRealPlayers = {} end
+		local targetPlayer = LocalPlayer
+		if args[2] then
+			local p = getPlayer(args[2])
+			if p then targetPlayer = p end
+		end
+		if targetPlayer then
+			local found = false
+			for _, rp in ipairs(state.JoinedRealPlayers) do
+				if rp == targetPlayer then found = true; break end
+			end
+			if not found then
+				table.insert(state.JoinedRealPlayers, targetPlayer)
+				notify("Join", targetPlayer.Name .. " joined the minigame!")
+			end
+		end
 	elseif cmd == "!among" and args[2] == "us" then
 		state.Mode = "AmongUs"
 		state.AUPhase = "Playing"
 		state.AURoles = {}
 		state.AULastKill = tick()
-		local npcs = getNPCs()
+		local participants = {}
+		for _, n in ipairs(getNPCs()) do table.insert(participants, n) end
+		if state.JoinedRealPlayers then
+			for _, rp in ipairs(state.JoinedRealPlayers) do
+				if rp.Character then table.insert(participants, rp.Character) end
+			end
+		end
 		local shuffled = {}
-		for _, n in ipairs(npcs) do table.insert(shuffled, n) end
+		for _, n in ipairs(participants) do table.insert(shuffled, n) end
 		for i = #shuffled, 2, -1 do
 			local j = math.random(i)
 			shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
@@ -1119,6 +1152,23 @@ local function handleCommand(player, msg)
 		for _, n in ipairs(getNPCs()) do
 			local hl = n:FindFirstChild("AUHighlight")
 			if hl then hl:Destroy() end
+			local head = n:FindFirstChild("Head")
+			if head then
+				local cd = head:FindFirstChild("AUStatusCD")
+				if cd then cd:Destroy() end
+			end
+		end
+		if state.AUVents then
+			for _, v in ipairs(state.AUVents) do
+				local vcd = v:FindFirstChild("AUVentCD")
+				if vcd then vcd:Destroy() end
+			end
+		end
+		if state.AUCafs then
+			for _, c in ipairs(state.AUCafs) do
+				local ccd = c:FindFirstChild("AUMeetingCD")
+				if ccd then ccd:Destroy() end
+			end
 		end
 		notify("Game", "Stopped special modes.")
 	elseif cmd == "!build" then
@@ -2261,173 +2311,83 @@ RunService.Heartbeat:Connect(function()
 			end
 		end
 	elseif state.Mode == "MurderMystery" then
+		local participants = {}
+		for _, n in ipairs(ownedNpcs) do table.insert(participants, n) end
+		if state.JoinedRealPlayers then
+			for _, rp in ipairs(state.JoinedRealPlayers) do
+				if rp.Character then table.insert(participants, rp.Character) end
+			end
+		end
 		local killer = state.MMKiller
-		if killer and killer:FindFirstChild("HumanoidRootPart") then
+		if killer and killer:FindFirstChild("Humanoid") and killer.Humanoid.Health > 0 then
 			local kHrp = killer:FindFirstChild("HumanoidRootPart")
 			local kHum = killer:FindFirstChild("Humanoid")
-			for npc, timeStart in pairs(state.MMFleeing) do
-				if tick() - timeStart > 6 then
-					state.MMFleeing[npc] = nil
-				else
-					local hrp = npc:FindFirstChild("HumanoidRootPart")
-					local hum = npc:FindFirstChild("Humanoid")
-					if hrp and hum then
-						local dir = (hrp.Position - kHrp.Position).Unit
-						smartMoveTo(hum, hrp.Position + dir * 30)
-					end
-				end
-			end
-			if state.MMChasing and state.MMChasing:FindFirstChild("HumanoidRootPart") and state.MMChasing:FindFirstChild("Humanoid").Health > 0 then
-				smartMoveTo(kHum, state.MMChasing.HumanoidRootPart.Position)
-				if (kHrp.Position - state.MMChasing.HumanoidRootPart.Position).Magnitude < 5 then
-					state.MMChasing.HumanoidRootPart.CFrame = CFrame.new(0, -50000, 0)
-					state.MMChasing.HumanoidRootPart.Velocity = Vector3.new(0,-1000,0)
-					state.MMChasing = nil
-				end
-			else
+			if kHrp and kHum then
 				local bestTarget = nil
 				local bestDist = math.huge
-				for _, npc in ipairs(ownedNpcs) do
-					if npc ~= killer and not state.MMFleeing[npc] then
+				for _, npc in ipairs(participants) do
+					if npc ~= killer and npc:FindFirstChild("Humanoid") and npc.Humanoid.Health > 0 then
 						local hrp = npc:FindFirstChild("HumanoidRootPart")
 						if hrp then
-							local isIsolated = true
-							for _, other in ipairs(ownedNpcs) do
-								if other ~= npc and other ~= killer then
-									local oHrp = other:FindFirstChild("HumanoidRootPart")
-									if oHrp and (oHrp.Position - hrp.Position).Magnitude < 30 then
-										isIsolated = false; break
-									end
-								end
-							end
-							if isIsolated then
-								local d = (hrp.Position - kHrp.Position).Magnitude
-								if d < bestDist then bestDist = d; bestTarget = npc end
+							local dist = (hrp.Position - kHrp.Position).Magnitude
+							if dist < bestDist then
+								bestDist = dist
+								bestTarget = npc
 							end
 						end
 					end
 				end
 				if bestTarget then
-					smartMoveTo(kHum, bestTarget.HumanoidRootPart.Position)
+					local tHrp = bestTarget:FindFirstChild("HumanoidRootPart")
+					if not isRealPlayer(killer) then
+						smartMoveTo(kHum, tHrp.Position)
+					end
 					if bestDist < 5 then
-						bestTarget.HumanoidRootPart.CFrame = CFrame.new(0, -50000, 0)
-						bestTarget.HumanoidRootPart.Velocity = Vector3.new(0,-1000,0)
-						for _, other in ipairs(ownedNpcs) do
-							if other ~= killer and other ~= bestTarget then
-								local oHrp = other:FindFirstChild("HumanoidRootPart")
-								if oHrp and (oHrp.Position - kHrp.Position).Magnitude < 50 then
-									state.MMFleeing[other] = tick()
-									state.MMChasing = other
-								end
-							end
+						bestTarget.Humanoid.Health = 0
+						bestTarget:BreakJoints()
+						state.MMFleeing[bestTarget] = nil
+						local remains = 0
+						for _, n in ipairs(participants) do
+							if n ~= killer and n:FindFirstChild("Humanoid") and n.Humanoid.Health > 0 then remains = remains + 1 end
+						end
+						if remains == 0 then
+							notify("Murder Mystery", "The killer eliminated everyone!")
+							state.Mode = nil
 						end
 					end
 				else
-					if tick() % 3 < 0.1 then
-						smartMoveTo(kHum, kHrp.Position + Vector3.new(math.random(-30,30), 0, math.random(-30,30)))
-					end
+					notify("Murder Mystery", "The killer eliminated everyone!")
+					state.Mode = nil
 				end
 			end
+		else
+			notify("Murder Mystery", "The killer has died! Innocents win!")
+			state.Mode = nil
 		end
-	elseif state.Mode == "AmongUs" then
-		if state.AUPhase == "Playing" then
-			local imps = {}
-			local crews = {}
-			for _, npc in ipairs(ownedNpcs) do
-				local role = state.AURoles[npc]
-				if role == "Imposter" then table.insert(imps, npc)
-				elseif role == "Crew" or role == "Engineer" then table.insert(crews, npc) end
-				local hl = npc:FindFirstChild("AUHighlight")
-				if not hl then
-					hl = Instance.new("Highlight"); hl.Name = "AUHighlight"; hl.Parent = npc
-				end
-				if role == "Imposter" then hl.FillColor = Color3.fromRGB(255, 0, 0)
-				elseif role == "Engineer" then hl.FillColor = Color3.fromRGB(255, 105, 180)
-				else hl.FillColor = Color3.fromRGB(0, 0, 255) end
-			end
-			if tick() - state.AULastKill > 15 then
-				for _, imp in ipairs(imps) do
-					local iHrp = imp:FindFirstChild("HumanoidRootPart")
-					local iHum = imp:FindFirstChild("Humanoid")
-					if iHrp and iHum then
-						local nearest = nil
-						local nDist = math.huge
-						for _, crew in ipairs(crews) do
-							local cHrp = crew:FindFirstChild("HumanoidRootPart")
-							if cHrp then
-								local d = (cHrp.Position - iHrp.Position).Magnitude
-								if d < nDist then nDist = d; nearest = crew end
-							end
-						end
-						if nearest and nDist < 30 then
-							smartMoveTo(iHum, nearest.HumanoidRootPart.Position)
-							if nDist < 5 then
-								local meetingTriggered = false
-								for _, otherCrew in ipairs(crews) do
-									if otherCrew ~= nearest then
-										local ocHrp = otherCrew:FindFirstChild("HumanoidRootPart")
-										if ocHrp and (ocHrp.Position - iHrp.Position).Magnitude < 6 then
-											local ocHum = otherCrew:FindFirstChild("Humanoid")
-											if ocHum then ocHum.Jump = true end
-											meetingTriggered = true
-										end
-									end
-								end
-								nearest.HumanoidRootPart.CFrame = CFrame.new(0, -50000, 0)
-								nearest.HumanoidRootPart.Velocity = Vector3.new(0,-1000,0)
-								state.AULastKill = tick()
-								if meetingTriggered then
-									state.AUPhase = "Meeting"
-									state.AUMeetingStart = tick()
-								end
-							end
-						else
-							if math.random() < 0.05 and #state.AUVents > 0 then
-								iHrp.CFrame = state.AUVents[math.random(1, #state.AUVents)].CFrame + Vector3.new(0, 5, 0)
-							end
-						end
-					end
-				end
-			end
-			for _, crew in ipairs(crews) do
-				local cHrp = crew:FindFirstChild("HumanoidRootPart")
-				local cHum = crew:FindFirstChild("Humanoid")
-				if cHrp and cHum then
-					if not state.AUTaskCooldowns then state.AUTaskCooldowns = {} end
-					if not state.AUTaskCooldowns[crew] or tick() - state.AUTaskCooldowns[crew] > 6 then
-						state.AUTaskCooldowns[crew] = tick()
-						if #state.AUTasks > 0 then
-							smartMoveTo(cHum, state.AUTasks[math.random(1, #state.AUTasks)].Position)
-						else
-							smartMoveTo(cHum, cHrp.Position + Vector3.new(math.random(-20,20), 0, math.random(-20,20)))
-						end
-					end
-				end
-			end
-		elseif state.AUPhase == "Meeting" then
-			local mtgPart = (#state.AUCafs > 0) and state.AUCafs[1] or nil
-			for _, npc in ipairs(ownedNpcs) do
+
+		for _, npc in ipairs(participants) do
+			if npc ~= killer and npc:FindFirstChild("Humanoid") and npc.Humanoid.Health > 0 and not isRealPlayer(npc) then
 				local hrp = npc:FindFirstChild("HumanoidRootPart")
-				if hrp then
-					if mtgPart then hrp.CFrame = mtgPart.CFrame + Vector3.new(math.random(-5,5), 5, math.random(-5,5)) end
-					hrp.Velocity = Vector3.new(0,0,0)
-					hrp.RotVelocity = Vector3.new(0,0,0)
+				local hum = npc:FindFirstChild("Humanoid")
+				if hrp and hum then
+					local kHrp = killer and killer:FindFirstChild("HumanoidRootPart")
+					if kHrp and (hrp.Position - kHrp.Position).Magnitude < 40 then
+						state.MMFleeing[npc] = tick() + 3
+						local fleeDir = (hrp.Position - kHrp.Position).Unit
+						smartMoveTo(hum, hrp.Position + fleeDir * 50)
+					else
+						if not state.MMFleeing[npc] or tick() > state.MMFleeing[npc] then
+							if not state.MMChasing then state.MMChasing = {} end
+							if not state.MMChasing[npc] or tick() > state.MMChasing[npc].tick then
+								state.MMChasing[npc] = {tick = tick() + math.random(4, 7), pos = hrp.Position + Vector3.new(math.random(-50,50), 0, math.random(-50,50))}
+							end
+							smartMoveTo(hum, state.MMChasing[npc].pos)
+						end
+					end
 				end
-			end
-			if tick() - state.AUMeetingStart > 10 then
-				local victim = ownedNpcs[math.random(1, #ownedNpcs)]
-				if victim and victim:FindFirstChild("HumanoidRootPart") then
-					victim.HumanoidRootPart.CFrame = CFrame.new(0, -50000, 0)
-					victim.HumanoidRootPart.Velocity = Vector3.new(0,-1000,0)
-				end
-				state.AUPhase = "Playing"
-				state.AULastKill = tick()
 			end
 		end
-	elseif state.Mode == "KillNPC" and state.KillTargetNPC then
-		local targetRoot = state.KillTargetNPC:FindFirstChild("HumanoidRootPart")
-		local targetHum = state.KillTargetNPC:FindFirstChild("Humanoid")
-		if targetRoot and targetHum and targetHum.Health > 0 then
+	elseif state.Mode == "KillNPC"		if targetRoot and targetHum and targetHum.Health > 0 then
 			local com = Vector3.new(0,0,0)
 			local acount = 0
 			for _, npc in ipairs(ownedNpcs) do
