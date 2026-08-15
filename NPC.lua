@@ -5,6 +5,7 @@
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local PathfindingService = game:GetService("PathfindingService")
 local StarterGui = game:GetService("StarterGui")
 
 -- In a true Server Script, LocalPlayer is nil. We try to grab the first player or define it if injected.
@@ -43,6 +44,18 @@ local state = {
 	GlobalAttackTarget = nil,
 	GlobalFreeze = false,
 	PossessedNPC = nil,
+	MMKiller = nil,
+	MMFleeing = {},
+	MMChasing = nil,
+	AURoles = {},
+	AUVents = {},
+	AUTasks = {},
+	AUCafs = {},
+	AUMeeting = false,
+	AUVotes = {},
+	AULastKill = tick(),
+	AUPhase = nil,
+	BuildMode = nil,
 	BlueNPC = nil,
 	RedNPC = nil,
 	PurplePhase = 0,
@@ -99,6 +112,27 @@ task.spawn(function()
 end)
 
 -- Enforce Absolute Server Ownership (Infinite Range & Superior Control)
+local function smartMoveTo(hum, targetPos)
+	local hrp = hum.Parent and hum.Parent:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+	if (hrp.Position - targetPos).Magnitude < 15 then
+		hum:MoveTo(targetPos)
+		return
+	end
+	local path = PathfindingService:CreatePath()
+	local s, e = pcall(function() path:ComputeAsync(hrp.Position, targetPos) end)
+	if s and path.Status == Enum.PathStatus.Success then
+		local wps = path:GetWaypoints()
+		if #wps > 1 then
+			hum:MoveTo(wps[2].Position)
+		else
+			hum:MoveTo(targetPos)
+		end
+	else
+		hum:MoveTo(targetPos)
+	end
+end
+
 local function enforceServerOwnership(hrp)
 	if hrp and hrp:IsA("BasePart") then
 		pcall(function()
@@ -292,13 +326,18 @@ end
 
 local function getPlayer(nameStr)
 	if type(nameStr) ~= "string" then return nil end
-	local nameStrLower = string.lower(nameStr)
+	local nameStrLower = string.lower(string.match(nameStr, "^%s*(.-)%s*$") or nameStr)
+	nameStrLower = string.gsub(nameStrLower, "[%(%)]", "")
 	if nameStrLower == "" then return nil end
 	for _, p in ipairs(Players:GetPlayers()) do
 		local pName = p.Name and string.lower(p.Name) or ""
 		local pDisp = p.DisplayName and string.lower(p.DisplayName) or ""
-		if (pName ~= "" and string.find(pName, nameStrLower, 1, true)) or
-			(pDisp ~= "" and string.find(pDisp, nameStrLower, 1, true)) then
+		if pName == nameStrLower or pDisp == nameStrLower then return p end
+	end
+	for _, p in ipairs(Players:GetPlayers()) do
+		local pName = p.Name and string.lower(p.Name) or ""
+		local pDisp = p.DisplayName and string.lower(p.DisplayName) or ""
+		if string.find(pName, nameStrLower, 1, true) or string.find(pDisp, nameStrLower, 1, true) then
 			return p
 		end
 	end
@@ -475,7 +514,8 @@ btnKillRadius.MouseButton1Click:Connect(function()
 			local hum = npc:FindFirstChild("Humanoid")
 			if hrp and hum and hum.Health > 0 then
 				if (hrp.Position - myRoot.Position).Magnitude <= 2.5 then
-					hum.Health = 0
+					hrp.CFrame = CFrame.new(0, -50000, 0)
+						hrp.Velocity = Vector3.new(0, -1000, 0)
 					count = count + 1
 				end
 			end
@@ -509,7 +549,8 @@ btnKillLocal.MouseButton1Click:Connect(function()
 				if (hrp.Position - myRoot.Position).Magnitude <= 2.5 then
 					local owner = getNetOwnerSafe(hrp)
 					if owner ~= nil then
-						hum.Health = 0
+						hrp.CFrame = CFrame.new(0, -50000, 0)
+						hrp.Velocity = Vector3.new(0, -1000, 0)
 						count = count + 1
 					end
 				end
@@ -532,7 +573,8 @@ btnKillPassive.MouseButton1Click:Connect(function()
 				if (hrp.Position - myRoot.Position).Magnitude <= 900 then
 					local owner = getNetOwnerSafe(hrp)
 					if owner == nil then
-						hum.Health = 0
+						hrp.CFrame = CFrame.new(0, -50000, 0)
+						hrp.Velocity = Vector3.new(0, -1000, 0)
 						count = count + 1
 					end
 				end
@@ -1024,12 +1066,86 @@ local function handleCommand(player, msg)
 	elseif cmd == "!freeze" then
 		state.GlobalFreeze = true
 		notify("Global Freeze", "All NPCs frozen")
+	elseif cmd == "wall" and args[2] == "orbit" then
+		state.Mode = "WallOrbit"
+		notify("Wall", "Orbiting")
+	elseif cmd == "murder" and args[2] == "mystery" then
+		state.Mode = "MurderMystery"
+		state.MMKiller = nil
+		state.MMChasing = nil
+		state.MMFleeing = {}
+		local npcs = getNPCs()
+		if #npcs > 0 then
+			state.MMKiller = npcs[math.random(1, #npcs)]
+			notify("Murder Mystery", "Game started! Killer selected.")
+		end
+	elseif cmd == "helicopter" then
+		state.Mode = "Helicopter"
+		notify("Helicopter", "Assembling helicopter")
+	elseif cmd == "sphere" then
+		state.Mode = "Sphere"
+		notify("Sphere", "Orbiting in a sphere")
+	elseif cmd == "!among" and args[2] == "us" then
+		state.Mode = "AmongUs"
+		state.AUPhase = "Playing"
+		state.AURoles = {}
+		state.AULastKill = tick()
+		local npcs = getNPCs()
+		local shuffled = {}
+		for _, n in ipairs(npcs) do table.insert(shuffled, n) end
+		for i = #shuffled, 2, -1 do
+			local j = math.random(i)
+			shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+		end
+		local numImps = math.min(3, math.floor(#shuffled / 4))
+		if numImps < 1 then numImps = 1 end
+		local numEng = math.min(2, math.floor(#shuffled / 5))
+		for i = 1, #shuffled do
+			if i <= numImps then state.AURoles[shuffled[i]] = "Imposter"
+			elseif i <= numImps + numEng then state.AURoles[shuffled[i]] = "Engineer"
+			else state.AURoles[shuffled[i]] = "Crew" end
+		end
+		notify("Among Us", "Started with " .. numImps .. " imposters.")
+	elseif cmd == "!stop" and args[2] == "game" then
+		state.Mode = nil
+		state.GlobalFreeze = false
+		for _, n in ipairs(getNPCs()) do
+			local hl = n:FindFirstChild("AUHighlight")
+			if hl then hl:Destroy() end
+		end
+		notify("Game", "Stopped special modes.")
+	elseif cmd == "!build" then
+		state.BuildMode = true
+		local tool = Instance.new("Tool")
+		tool.Name = "Build"
+		tool.RequiresHandle = false
+		tool.Parent = LocalPlayer:WaitForChild("Backpack")
+		local toolConn; toolConn = tool.Activated:Connect(function()
+			local mouse = LocalPlayer:GetMouse()
+			local target = mouse.Target
+			if target and state.BuildSelected then
+				if state.BuildSelected == "Vent" then table.insert(state.AUVents, target); target.Color = Color3.fromRGB(10, 10, 10)
+				elseif state.BuildSelected == "Cafeteria" then table.insert(state.AUCafs, target); target.Color = Color3.fromRGB(139, 69, 19)
+				elseif state.BuildSelected == "Task" then table.insert(state.AUTasks, target); target.Color = Color3.fromRGB(173, 216, 230) end
+				notify("Build", "Assigned " .. state.BuildSelected .. " to " .. target.Name)
+			end
+		end)
+		local bGui = Instance.new("ScreenGui")
+		bGui.Name = "BuildGui"
+		bGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+		local bFrame = Instance.new("Frame")
+		bFrame.Size = UDim2.new(0, 150, 0, 150); bFrame.Position = UDim2.new(0, 50, 0.5, -75); bFrame.Parent = bGui
+		local function makeBtn(name, y, mode)
+			local b = Instance.new("TextButton")
+			b.Size = UDim2.new(1, 0, 0, 40); b.Position = UDim2.new(0, 0, 0, y); b.Text = name; b.Parent = bFrame
+			b.MouseButton1Click:Connect(function() state.BuildSelected = mode; notify("Build", "Selected " .. mode) end)
+		end
+		makeBtn("Vent (Black)", 0, "Vent"); makeBtn("Cafeteria (Brown)", 50, "Cafeteria"); makeBtn("Task (Blue)", 100, "Task")
+		tool.Unequipped:Connect(function() bGui.Enabled = false end)
+		tool.Equipped:Connect(function() bGui.Enabled = true end)
+		notify("Build", "Build tool given.")
 	elseif cmd == "!unfreeze" then
 		state.GlobalFreeze = false
-		for _, npc in ipairs(getNPCs()) do
-			local hrp = npc:FindFirstChild("HumanoidRootPart")
-			if hrp then hrp.Anchored = false end
-		end
 		notify("Global Freeze", "All NPCs unfrozen")
 	elseif cmd == "self" and args[2] == "defense" then
 		state.SelfDefense = not state.SelfDefense
@@ -1669,9 +1785,9 @@ RunService.Heartbeat:Connect(function()
 			local hum = npc:FindFirstChild("Humanoid")
 			if hrp and hum and hum.Health > 0 and not state.IsOverridden[npc] then
 				if state.GlobalFreeze then
-					hrp.Anchored = true
+					hrp.Velocity = Vector3.new(0, 0, 0)
+					hrp.RotVelocity = Vector3.new(0, 0, 0)
 				elseif gTargetRoot then
-					hrp.Anchored = false
 					hum:MoveTo(gTargetRoot.Position)
 					local objTarget = npc:FindFirstChild("Target") or npc:FindFirstChild("target")
 					if objTarget and objTarget:IsA("ObjectValue") then
@@ -2074,24 +2190,259 @@ RunService.Heartbeat:Connect(function()
 				end
 			end
 		end
+	elseif state.Mode == "WallOrbit" then
+		local pChar = LocalPlayer.Character
+		local pRoot = pChar and pChar:FindFirstChild("HumanoidRootPart")
+		if pRoot then
+			local count = math.min(#ownedNpcs, 4)
+			for i=1, count do
+				local npc = ownedNpcs[i]
+				local hrp = npc:FindFirstChild("HumanoidRootPart")
+				if hrp then
+					local angle = (i - 1) * (math.pi / 2) + tick() * 2
+					local targetCFrame = pRoot.CFrame * CFrame.Angles(0, angle, 0) * CFrame.new(0, 0, -10)
+					hrp.CFrame = hrp.CFrame:Lerp(targetCFrame, 0.1)
+					hrp.Velocity = Vector3.new(0,0,0)
+					hrp.RotVelocity = Vector3.new(0,0,0)
+				end
+			end
+		end
+	elseif state.Mode == "Helicopter" then
+		local pChar = LocalPlayer.Character
+		local pRoot = pChar and pChar:FindFirstChild("HumanoidRootPart")
+		if pRoot then
+			local count = math.min(#ownedNpcs, 5)
+			if count >= 1 then
+				local baseHrp = ownedNpcs[1]:FindFirstChild("HumanoidRootPart")
+				if baseHrp then
+					local baseCF = pRoot.CFrame * CFrame.new(0, 15, 0)
+					baseHrp.CFrame = baseHrp.CFrame:Lerp(baseCF, 0.2)
+					baseHrp.Velocity = Vector3.new(0,0,0)
+					for i=2, count do
+						local bHrp = ownedNpcs[i]:FindFirstChild("HumanoidRootPart")
+						if bHrp then
+							local angle = (i - 2) * (math.pi * 2 / (count - 1)) + tick() * 10
+							local bCF = baseCF * CFrame.new(0, 2, 0) * CFrame.Angles(0, angle, 0) * CFrame.new(0, 0, -8) * CFrame.Angles(math.pi/2, 0, 0)
+							bHrp.CFrame = bHrp.CFrame:Lerp(bCF, 0.5)
+							bHrp.Velocity = Vector3.new(0,0,0)
+							bHrp.RotVelocity = Vector3.new(0,0,0)
+						end
+					end
+				end
+			end
+		end
+	elseif state.Mode == "Sphere" then
+		local pChar = LocalPlayer.Character
+		local pRoot = pChar and pChar:FindFirstChild("HumanoidRootPart")
+		if pRoot then
+			local count = #ownedNpcs
+			local phi = math.pi * (3 - math.sqrt(5))
+			for i, npc in ipairs(ownedNpcs) do
+				local hrp = npc:FindFirstChild("HumanoidRootPart")
+				if hrp then
+					local y = 1 - (i / (count)) * 2
+					local radius = math.sqrt(1 - y * y)
+					local theta = phi * i + tick() * 2
+					local x = math.cos(theta) * radius
+					local z = math.sin(theta) * radius
+					local offset = Vector3.new(x, y, z) * 15
+					local targetCF = CFrame.new(pRoot.Position + offset, pRoot.Position)
+					hrp.CFrame = hrp.CFrame:Lerp(targetCF, 0.1)
+					hrp.Velocity = Vector3.new(0,0,0)
+					hrp.RotVelocity = Vector3.new(0,0,0)
+				end
+			end
+		end
+	elseif state.Mode == "MurderMystery" then
+		local killer = state.MMKiller
+		if killer and killer:FindFirstChild("HumanoidRootPart") then
+			local kHrp = killer:FindFirstChild("HumanoidRootPart")
+			local kHum = killer:FindFirstChild("Humanoid")
+			for npc, timeStart in pairs(state.MMFleeing) do
+				if tick() - timeStart > 6 then
+					state.MMFleeing[npc] = nil
+				else
+					local hrp = npc:FindFirstChild("HumanoidRootPart")
+					local hum = npc:FindFirstChild("Humanoid")
+					if hrp and hum then
+						local dir = (hrp.Position - kHrp.Position).Unit
+						smartMoveTo(hum, hrp.Position + dir * 30)
+					end
+				end
+			end
+			if state.MMChasing and state.MMChasing:FindFirstChild("HumanoidRootPart") and state.MMChasing:FindFirstChild("Humanoid").Health > 0 then
+				smartMoveTo(kHum, state.MMChasing.HumanoidRootPart.Position)
+				if (kHrp.Position - state.MMChasing.HumanoidRootPart.Position).Magnitude < 5 then
+					state.MMChasing.HumanoidRootPart.CFrame = CFrame.new(0, -50000, 0)
+					state.MMChasing.HumanoidRootPart.Velocity = Vector3.new(0,-1000,0)
+					state.MMChasing = nil
+				end
+			else
+				local bestTarget = nil
+				local bestDist = math.huge
+				for _, npc in ipairs(ownedNpcs) do
+					if npc ~= killer and not state.MMFleeing[npc] then
+						local hrp = npc:FindFirstChild("HumanoidRootPart")
+						if hrp then
+							local isIsolated = true
+							for _, other in ipairs(ownedNpcs) do
+								if other ~= npc and other ~= killer then
+									local oHrp = other:FindFirstChild("HumanoidRootPart")
+									if oHrp and (oHrp.Position - hrp.Position).Magnitude < 30 then
+										isIsolated = false; break
+									end
+								end
+							end
+							if isIsolated then
+								local d = (hrp.Position - kHrp.Position).Magnitude
+								if d < bestDist then bestDist = d; bestTarget = npc end
+							end
+						end
+					end
+				end
+				if bestTarget then
+					smartMoveTo(kHum, bestTarget.HumanoidRootPart.Position)
+					if bestDist < 5 then
+						bestTarget.HumanoidRootPart.CFrame = CFrame.new(0, -50000, 0)
+						bestTarget.HumanoidRootPart.Velocity = Vector3.new(0,-1000,0)
+						for _, other in ipairs(ownedNpcs) do
+							if other ~= killer and other ~= bestTarget then
+								local oHrp = other:FindFirstChild("HumanoidRootPart")
+								if oHrp and (oHrp.Position - kHrp.Position).Magnitude < 50 then
+									state.MMFleeing[other] = tick()
+									state.MMChasing = other
+								end
+							end
+						end
+					end
+				else
+					if tick() % 3 < 0.1 then
+						smartMoveTo(kHum, kHrp.Position + Vector3.new(math.random(-30,30), 0, math.random(-30,30)))
+					end
+				end
+			end
+		end
+	elseif state.Mode == "AmongUs" then
+		if state.AUPhase == "Playing" then
+			local imps = {}
+			local crews = {}
+			for _, npc in ipairs(ownedNpcs) do
+				local role = state.AURoles[npc]
+				if role == "Imposter" then table.insert(imps, npc)
+				elseif role == "Crew" or role == "Engineer" then table.insert(crews, npc) end
+				local hl = npc:FindFirstChild("AUHighlight")
+				if not hl then
+					hl = Instance.new("Highlight"); hl.Name = "AUHighlight"; hl.Parent = npc
+				end
+				if role == "Imposter" then hl.FillColor = Color3.fromRGB(255, 0, 0)
+				elseif role == "Engineer" then hl.FillColor = Color3.fromRGB(255, 105, 180)
+				else hl.FillColor = Color3.fromRGB(0, 0, 255) end
+			end
+			if tick() - state.AULastKill > 15 then
+				for _, imp in ipairs(imps) do
+					local iHrp = imp:FindFirstChild("HumanoidRootPart")
+					local iHum = imp:FindFirstChild("Humanoid")
+					if iHrp and iHum then
+						local nearest = nil
+						local nDist = math.huge
+						for _, crew in ipairs(crews) do
+							local cHrp = crew:FindFirstChild("HumanoidRootPart")
+							if cHrp then
+								local d = (cHrp.Position - iHrp.Position).Magnitude
+								if d < nDist then nDist = d; nearest = crew end
+							end
+						end
+						if nearest and nDist < 30 then
+							smartMoveTo(iHum, nearest.HumanoidRootPart.Position)
+							if nDist < 5 then
+								local meetingTriggered = false
+								for _, otherCrew in ipairs(crews) do
+									if otherCrew ~= nearest then
+										local ocHrp = otherCrew:FindFirstChild("HumanoidRootPart")
+										if ocHrp and (ocHrp.Position - iHrp.Position).Magnitude < 6 then
+											local ocHum = otherCrew:FindFirstChild("Humanoid")
+											if ocHum then ocHum.Jump = true end
+											meetingTriggered = true
+										end
+									end
+								end
+								nearest.HumanoidRootPart.CFrame = CFrame.new(0, -50000, 0)
+								nearest.HumanoidRootPart.Velocity = Vector3.new(0,-1000,0)
+								state.AULastKill = tick()
+								if meetingTriggered then
+									state.AUPhase = "Meeting"
+									state.AUMeetingStart = tick()
+								end
+							end
+						else
+							if math.random() < 0.05 and #state.AUVents > 0 then
+								iHrp.CFrame = state.AUVents[math.random(1, #state.AUVents)].CFrame + Vector3.new(0, 5, 0)
+							end
+						end
+					end
+				end
+			end
+			for _, crew in ipairs(crews) do
+				local cHrp = crew:FindFirstChild("HumanoidRootPart")
+				local cHum = crew:FindFirstChild("Humanoid")
+				if cHrp and cHum then
+					if not state.AUTaskCooldowns then state.AUTaskCooldowns = {} end
+					if not state.AUTaskCooldowns[crew] or tick() - state.AUTaskCooldowns[crew] > 6 then
+						state.AUTaskCooldowns[crew] = tick()
+						if #state.AUTasks > 0 then
+							smartMoveTo(cHum, state.AUTasks[math.random(1, #state.AUTasks)].Position)
+						else
+							smartMoveTo(cHum, cHrp.Position + Vector3.new(math.random(-20,20), 0, math.random(-20,20)))
+						end
+					end
+				end
+			end
+		elseif state.AUPhase == "Meeting" then
+			local mtgPart = (#state.AUCafs > 0) and state.AUCafs[1] or nil
+			for _, npc in ipairs(ownedNpcs) do
+				local hrp = npc:FindFirstChild("HumanoidRootPart")
+				if hrp then
+					if mtgPart then hrp.CFrame = mtgPart.CFrame + Vector3.new(math.random(-5,5), 5, math.random(-5,5)) end
+					hrp.Velocity = Vector3.new(0,0,0)
+					hrp.RotVelocity = Vector3.new(0,0,0)
+				end
+			end
+			if tick() - state.AUMeetingStart > 10 then
+				local victim = ownedNpcs[math.random(1, #ownedNpcs)]
+				if victim and victim:FindFirstChild("HumanoidRootPart") then
+					victim.HumanoidRootPart.CFrame = CFrame.new(0, -50000, 0)
+					victim.HumanoidRootPart.Velocity = Vector3.new(0,-1000,0)
+				end
+				state.AUPhase = "Playing"
+				state.AULastKill = tick()
+			end
+		end
 	elseif state.Mode == "KillNPC" and state.KillTargetNPC then
 		local targetRoot = state.KillTargetNPC:FindFirstChild("HumanoidRootPart")
 		local targetHum = state.KillTargetNPC:FindFirstChild("Humanoid")
 		if targetRoot and targetHum and targetHum.Health > 0 then
-			if targetHum.Health > 0 then
-				local runDir = Vector3.new(math.random(-1,1), 0, math.random(-1,1)).Unit
-				if runDir.Magnitude > 0 then
-					targetHum:MoveTo(targetRoot.Position + runDir * 30)
+			local com = Vector3.new(0,0,0)
+			local acount = 0
+			for _, npc in ipairs(ownedNpcs) do
+				if npc ~= state.KillTargetNPC and not state.StayingNPCs[npc] then
+					local hrp = npc:FindFirstChild("HumanoidRootPart")
+					if hrp then com = com + hrp.Position; acount = acount + 1 end
 				end
+			end
+			if acount > 0 then
+				com = com / acount
+				local runDir = (targetRoot.Position - com).Unit
+				smartMoveTo(targetHum, targetRoot.Position + runDir * 40)
 			end
 			for _, npc in ipairs(ownedNpcs) do
 				if npc ~= state.KillTargetNPC and not state.StayingNPCs[npc] then
 					local hum = npc:FindFirstChild("Humanoid")
 					local hrp = npc:FindFirstChild("HumanoidRootPart")
 					if hum and hrp then
-						hum:MoveTo(targetRoot.Position)
-						if (hrp.Position - targetRoot.Position).Magnitude < 4 then
-							targetHum.Health = 0
+						smartMoveTo(hum, targetRoot.Position)
+						if (hrp.Position - targetRoot.Position).Magnitude < 5 then
+							targetRoot.CFrame = CFrame.new(0, -50000, 0)
+							targetRoot.Velocity = Vector3.new(0, -1000, 0)
 						end
 					end
 				end
