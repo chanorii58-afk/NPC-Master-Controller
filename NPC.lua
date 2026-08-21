@@ -1,21 +1,13 @@
--- NPC Controller (Server-Sided & Infinite Range Optimized)
--- MODIFIED FOR SERVER OWNERSHIP: All players will see these changes.
--- NOTE: For this to work globally, this must be executed in a Server Script or SS Executor.
--- UPDATE: Added SimulationRadius bypass for Arceus X Neo client-side execution to maintain infinite range.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local PathfindingService = game:GetService("PathfindingService")
 local StarterGui = game:GetService("StarterGui")
-
--- In a true Server Script, LocalPlayer is nil. We try to grab the first player or define it if injected.
 local LocalPlayer = Players.LocalPlayer or Players:GetPlayers()[1]
 Players.PlayerAdded:Connect(function(p)
 	if not LocalPlayer then LocalPlayer = p end
 end)
-
 local state = {
-
 	Follow = false,
 	Spin = false,
 	Chat = false,
@@ -68,11 +60,6 @@ local state = {
 	PurpleTick = 0,
 	PurpleStartCFrame = nil
 }
-
--- ==========================================
--- INFINITE RANGE EXECUTOR OPTIMIZATION
--- ==========================================
--- Bypasses the client-side physics cutoff by maximizing your simulation radius.
 task.spawn(function()
 	RunService.Heartbeat:Connect(function()
 		pcall(function()
@@ -84,7 +71,6 @@ task.spawn(function()
 				else
 					LocalPlayer.SimulationRadius = r
 				end
-				
 				local radPart = workspace:FindFirstChild("NPCRadiusVisual")
 				if state.ShowRadius and r ~= math.huge then
 					if not radPart then
@@ -110,8 +96,6 @@ task.spawn(function()
 		end)
 	end)
 end)
-
--- Enforce Absolute Server Ownership (Infinite Range & Superior Control)
 local function smartMoveTo(hum, targetPos)
 	local hrp = hum.Parent and hum.Parent:FindFirstChild("HumanoidRootPart")
 	if not hrp then return end
@@ -132,73 +116,54 @@ local function smartMoveTo(hum, targetPos)
 		hum:MoveTo(targetPos)
 	end
 end
-
 local function enforceServerOwnership(hrp)
 	if hrp and hrp:IsA("BasePart") then
 		pcall(function()
-			if type(hrp.SetNetworkOwner) == "function" then hrp:SetNetworkOwner(nil) end -- nil forces the SERVER to calculate physics
+			if type(hrp.SetNetworkOwner) == "function" then hrp:SetNetworkOwner(nil) end
 		end)
 	end
 end
-
 local function isRealPlayer(char)
 	return Players:GetPlayerFromCharacter(char) ~= nil
 end
-
 local function isConnected(npc)
 	local hrp = npc:FindFirstChild("HumanoidRootPart")
 	if not hrp then return false end
-
 	local success, owner = pcall(function() if type(getnetworkowner)=="function" then return getnetworkowner(hrp) elseif type(hrp.GetNetworkOwner)=="function" then return hrp:GetNetworkOwner() else error("No NetOwner") end end)
 	if success and owner == nil then
-		return true -- Server owns it
+		return true
 	end
-
 	local successAge, age = pcall(function() return hrp.ReceiveAge end)
 	if successAge and age == 0 and not hrp.Anchored then
 		return true
 	end
 	return false
 end
-
 local function forceConnect(npc)
 	local hrp = npc:FindFirstChild("HumanoidRootPart")
 	if not hrp then return end
-
 	local hum = npc:FindFirstChild("Humanoid")
 	if not hum or hum.Health <= 0 then return end
-
-	-- Absolute Server Ownership Assignment
 	enforceServerOwnership(hrp)
-
 	pcall(function()
 		hum:ChangeState(Enum.HumanoidStateType.Running)
 		hum.PlatformStand = false
 		hum.Sit = false
 	end)
 	hrp.Anchored = false
-
-	-- Micro-movement to keep physics awake
 	pcall(function()
 		hrp.AssemblyLinearVelocity = hrp.AssemblyLinearVelocity + Vector3.new(0, 0.05, 0)
 	end)
 end
-
--- ==========================================
--- ADVANCED CLONE RECOVERY SYSTEM (SMOOTH/ANTI-LAG)
--- ==========================================
 local CloneRecovery = {}
-
 function CloneRecovery.IsCloneConnected(npc)
 	return isConnected(npc)
 end
-
 function CloneRecovery.RefreshCloneReferences(npc)
 	local hum = npc:FindFirstChild("Humanoid")
 	local hrp = npc:FindFirstChild("HumanoidRootPart")
 	return hum, hrp
 end
-
 function CloneRecovery.MoveToCloneForRecovery(npc)
 	if not LocalPlayer then return nil end
 	local myChar = LocalPlayer.Character
@@ -211,7 +176,6 @@ function CloneRecovery.MoveToCloneForRecovery(npc)
 	end
 	return nil
 end
-
 function CloneRecovery.RestoreOriginalPosition(oldCFrame)
 	if not LocalPlayer then return end
 	local myChar = LocalPlayer.Character
@@ -221,52 +185,41 @@ function CloneRecovery.RestoreOriginalPosition(oldCFrame)
 		myRoot.AssemblyLinearVelocity = Vector3.zero
 	end
 end
-
 function CloneRecovery.RecoverClone(npc)
 	if CloneRecovery.IsCloneConnected(npc) then return true end
-
 	local oldPos = CloneRecovery.MoveToCloneForRecovery(npc)
 	task.wait(0.15)
 	forceConnect(npc)
-
 	local attempts = 0
 	while not CloneRecovery.IsCloneConnected(npc) and attempts < 10 do
 		attempts = attempts + 1
 		forceConnect(npc)
 		task.wait(0.1)
 	end
-
 	if oldPos then
 		CloneRecovery.RestoreOriginalPosition(oldPos)
 	end
-
 	return CloneRecovery.IsCloneConnected(npc)
 end
-
 function CloneRecovery.VerifyCloneControl(npc)
 	return CloneRecovery.IsCloneConnected(npc) or CloneRecovery.RecoverClone(npc)
 end
-
 local function teleportClone(npc, targetCFrame)
 	local hrp = npc:FindFirstChild("HumanoidRootPart")
 	if not hrp then return false end
-
 	if not CloneRecovery.VerifyCloneControl(npc) then
 		return false
 	end
-
 	hrp.CFrame = targetCFrame
 	hrp.AssemblyLinearVelocity = Vector3.zero
 	hrp.AssemblyAngularVelocity = Vector3.zero
 	return true
 end
-
 local npcCache = {}
 local cachedNpcsList = {}
 local nextNpcId = 1
 local npcOwnershipState = {}
 local lastNpcRefresh = 0
-
 local function refreshNPCs()
 	local currentNPCs = {}
 	for _, obj in ipairs(workspace:GetDescendants()) do
@@ -294,13 +247,11 @@ local function refreshNPCs()
 	end
 	cachedNpcsList = currentNPCs
 end
-
 local function getNPCs()
 	if tick() - lastNpcRefresh > 2 then
 		lastNpcRefresh = tick()
 		task.spawn(refreshNPCs)
 	end
-
 	for i = #cachedNpcsList, 1, -1 do
 		local obj = cachedNpcsList[i]
 		local hum = obj and obj:FindFirstChild("Humanoid")
@@ -308,17 +259,14 @@ local function getNPCs()
 			table.remove(cachedNpcsList, i)
 		end
 	end
-
 	for obj, _ in pairs(npcCache) do
 		if not obj or not obj.Parent then
 			npcCache[obj] = nil
 			npcOwnershipState[obj] = nil
 		end
 	end
-
 	return cachedNpcsList
 end
-
 local function getNPCById(id)
 	for obj, data in pairs(npcCache) do
 		if data.id == id and obj and obj.Parent then
@@ -327,7 +275,6 @@ local function getNPCById(id)
 	end
 	return nil
 end
-
 local function getPlayer(nameStr)
 	if type(nameStr) ~= "string" then return nil end
 	local nameStrLower = string.lower(string.match(nameStr, "^%s*(.-)%s*$") or nameStr)
@@ -347,7 +294,6 @@ local function getPlayer(nameStr)
 	end
 	return nil
 end
-
 local function getPlayersByName(nameStr)
 	if type(nameStr) ~= "string" then return {} end
 	local matches = {}
@@ -363,25 +309,20 @@ local function getPlayersByName(nameStr)
 	end
 	return matches
 end
-
 local function notify(title, text)
 	print("[NPC Controller] " .. title .. ": " .. text)
 end
-
--- GUI Setup
 local targetParent
 if LocalPlayer then
 	targetParent = LocalPlayer:WaitForChild("PlayerGui")
 else
 	targetParent = game:GetService("StarterGui")
 end
-
 pcall(function()
 	for _, gui in ipairs(targetParent:GetChildren()) do
 		if gui.Name == "NPCControllerGUI" then gui:Destroy() end
 	end
 end)
-
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "NPCControllerGUI"
 ScreenGui.Parent = targetParent
@@ -389,7 +330,6 @@ ScreenGui.ResetOnSpawn = false
 ScreenGui.DisplayOrder = 9999
 ScreenGui.IgnoreGuiInset = true
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-
 local BubbleFrame = Instance.new("ImageButton")
 BubbleFrame.Size = UDim2.new(0, 50, 0, 50)
 BubbleFrame.AnchorPoint = Vector2.new(0.5, 0)
@@ -409,7 +349,6 @@ BubbleText.TextColor3 = Color3.fromRGB(255, 255, 255)
 BubbleText.Font = Enum.Font.SourceSansBold
 BubbleText.TextSize = 14
 BubbleText.Parent = BubbleFrame
-
 local MainFrame = Instance.new("Frame")
 MainFrame.Size = UDim2.new(0, 150, 0, 285)
 MainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -417,7 +356,6 @@ MainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
 MainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
 MainFrame.Active = true
 MainFrame.Parent = ScreenGui
-
 local CloseMainBtn = Instance.new("TextButton")
 CloseMainBtn.Size = UDim2.new(0, 25, 0, 25)
 CloseMainBtn.Position = UDim2.new(1, -25, 0, 0)
@@ -427,7 +365,6 @@ CloseMainBtn.Text = "X"
 CloseMainBtn.Font = Enum.Font.SourceSansBold
 CloseMainBtn.TextSize = 14
 CloseMainBtn.Parent = MainFrame
-
 CloseMainBtn.MouseButton1Click:Connect(function()
 	MainFrame.Visible = false
 	BubbleFrame.Visible = true
@@ -436,7 +373,6 @@ BubbleFrame.MouseButton1Click:Connect(function()
 	BubbleFrame.Visible = false
 	MainFrame.Visible = true
 end)
-
 local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, -25, 0, 25)
 Title.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
@@ -445,7 +381,6 @@ Title.Text = "NPC Controller (Server)"
 Title.Font = Enum.Font.SourceSansBold
 Title.TextSize = 14
 Title.Parent = MainFrame
-
 local MainScroll = Instance.new("ScrollingFrame")
 MainScroll.Size = UDim2.new(1, 0, 1, -25)
 MainScroll.Position = UDim2.new(0, 0, 0, 25)
@@ -453,16 +388,13 @@ MainScroll.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
 MainScroll.ScrollBarThickness = 4
 MainScroll.CanvasSize = UDim2.new(0, 0, 0, 310)
 MainScroll.Parent = MainFrame
-
 local UIListLayoutMain = Instance.new("UIListLayout")
 UIListLayoutMain.Padding = UDim.new(0, 2)
 UIListLayoutMain.HorizontalAlignment = Enum.HorizontalAlignment.Center
 UIListLayoutMain.Parent = MainScroll
-
 UIListLayoutMain:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
 	MainScroll.CanvasSize = UDim2.new(0, 0, 0, UIListLayoutMain.AbsoluteContentSize.Y + 10)
 end)
-
 local function createToggle(name)
 	local btn = Instance.new("TextButton")
 	btn.Size = UDim2.new(1, -16, 0, 25)
@@ -474,7 +406,6 @@ local function createToggle(name)
 	btn.Parent = MainScroll
 	return btn
 end
-
 local function createButton(name)
 	local btn = Instance.new("TextButton")
 	btn.Size = UDim2.new(1, -16, 0, 25)
@@ -486,12 +417,10 @@ local function createButton(name)
 	btn.Parent = MainScroll
 	return btn
 end
-
 local Spacer = Instance.new("Frame")
 Spacer.Size = UDim2.new(1, 0, 0, 2)
 Spacer.BackgroundTransparency = 1
 Spacer.Parent = MainScroll
-
 local btnFollow = createToggle("Follow Me")
 local btnSpin = createToggle("Spin NPCs")
 local btnChat = createToggle("Chat Commands")
@@ -506,7 +435,6 @@ local Spacer2 = Instance.new("Frame")
 Spacer2.Size = UDim2.new(1, 0, 0, 10)
 Spacer2.BackgroundTransparency = 1
 Spacer2.Parent = MainScroll
-
 local btnKillRadius = createButton("Kill NPCs (2 Studs)")
 btnKillRadius.BackgroundColor3 = Color3.fromRGB(150, 50, 50)
 btnKillRadius.MouseButton1Click:Connect(function()
@@ -527,7 +455,6 @@ btnKillRadius.MouseButton1Click:Connect(function()
 		notify("Kill", "Killed " .. count .. " NPCs nearby.")
 	end
 end)
-
 local function getNetOwnerSafe(hrp)
 	if type(getnetworkowner) == "function" then
 		local s, o = pcall(getnetworkowner, hrp)
@@ -539,7 +466,6 @@ local function getNetOwnerSafe(hrp)
 	end
 	return nil
 end
-
 local btnKillLocal = createButton("Kill Local (2 Studs)")
 btnKillLocal.BackgroundColor3 = Color3.fromRGB(150, 80, 50)
 btnKillLocal.MouseButton1Click:Connect(function()
@@ -563,7 +489,6 @@ btnKillLocal.MouseButton1Click:Connect(function()
 		notify("Kill Local", "Killed " .. count .. " owned NPCs nearby.")
 	end
 end)
-
 local btnKillPassive = createButton("Kill Passive (900 Studs)")
 btnKillPassive.BackgroundColor3 = Color3.fromRGB(150, 50, 80)
 btnKillPassive.MouseButton1Click:Connect(function()
@@ -587,25 +512,18 @@ btnKillPassive.MouseButton1Click:Connect(function()
 		notify("Kill Passive", "Killed " .. count .. " unowned NPCs.")
 	end
 end)
-
 btnShowRadius.MouseButton1Click:Connect(function()
 	state.ShowRadius = not state.ShowRadius
 	btnShowRadius.Text = "Visible Radius: " .. (state.ShowRadius and "ON" or "OFF")
 	btnShowRadius.BackgroundColor3 = state.ShowRadius and Color3.fromRGB(50, 150, 50) or Color3.fromRGB(50, 50, 50)
 end)
-
-
-
-
 local permissions = {}
-
 local NPCListFrame = Instance.new("Frame")
 NPCListFrame.Size = UDim2.new(0, 250, 1, 0)
 NPCListFrame.Position = UDim2.new(1, 10, 0, 0)
 NPCListFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 NPCListFrame.Visible = false
 NPCListFrame.Parent = MainFrame
-
 local NPCListTitle = Instance.new("TextLabel")
 NPCListTitle.Size = UDim2.new(1, 0, 0, 30)
 NPCListTitle.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
@@ -614,7 +532,6 @@ NPCListTitle.Text = "NPC Connections List"
 NPCListTitle.Font = Enum.Font.SourceSansBold
 NPCListTitle.TextSize = 14
 NPCListTitle.Parent = NPCListFrame
-
 local NPCScroll = Instance.new("ScrollingFrame")
 NPCScroll.Size = UDim2.new(1, 0, 1, -30)
 NPCScroll.Position = UDim2.new(0, 0, 0, 30)
@@ -622,25 +539,21 @@ NPCScroll.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 NPCScroll.ScrollBarThickness = 5
 NPCScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 NPCScroll.Parent = NPCListFrame
-
 local UIListLayout = Instance.new("UIListLayout")
 UIListLayout.Padding = UDim.new(0, 2)
 UIListLayout.Parent = NPCScroll
 UIListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
 	NPCScroll.CanvasSize = UDim2.new(0, 0, 0, UIListLayout.AbsoluteContentSize.Y)
 end)
-
 btnToggleList.MouseButton1Click:Connect(function()
 	NPCListFrame.Visible = not NPCListFrame.Visible
 end)
-
 local CmdsFrame = Instance.new("Frame")
 CmdsFrame.Size = UDim2.new(0, 250, 0, 330)
 CmdsFrame.Position = UDim2.new(0, -260, 0, 0)
 CmdsFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 CmdsFrame.Visible = false
 CmdsFrame.Parent = MainFrame
-
 local CmdsTitle = Instance.new("TextLabel")
 CmdsTitle.Size = UDim2.new(1, 0, 0, 30)
 CmdsTitle.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
@@ -649,7 +562,6 @@ CmdsTitle.Text = "Command List"
 CmdsTitle.Font = Enum.Font.SourceSansBold
 CmdsTitle.TextSize = 14
 CmdsTitle.Parent = CmdsFrame
-
 local CmdsScroll = Instance.new("ScrollingFrame")
 CmdsScroll.Size = UDim2.new(1, 0, 1, -30)
 CmdsScroll.Position = UDim2.new(0, 0, 0, 30)
@@ -657,14 +569,12 @@ CmdsScroll.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 CmdsScroll.ScrollBarThickness = 5
 CmdsScroll.Parent = CmdsFrame
 CmdsScroll.CanvasSize = UDim2.new(0, 0, 0, 600)
-
 local CmdsLayout = Instance.new("UIListLayout")
 CmdsLayout.Padding = UDim.new(0, 2)
 CmdsLayout.Parent = CmdsScroll
 CmdsLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
 	CmdsScroll.CanvasSize = UDim2.new(0, 0, 0, CmdsLayout.AbsoluteContentSize.Y)
 end)
-
 local cmdListText = {
 	"[id] follow [player] - Specific follow",
 	"ufo - Orbit and levitate",
@@ -703,7 +613,6 @@ local cmdListText = {
 	"lapse blue - Gojo Lapse Blue",
 	"reversal red - Gojo Reversal Red",
 	"hollow purple - Combine Blue and Red",
-
 	"attack [player] - Attack target",
 	"makeway - Move away from you",
 	"arise - Walk randomly",
@@ -732,7 +641,6 @@ local cmdListText = {
 	"assemble - Assemble behind you",
 	"find [player] - Push you to the target player"
 }
-
 for _, msg in ipairs(cmdListText) do
 	local lbl = Instance.new("TextLabel")
 	lbl.Size = UDim2.new(1, -10, 0, 25)
@@ -744,11 +652,9 @@ for _, msg in ipairs(cmdListText) do
 	lbl.TextSize = 13
 	lbl.Parent = CmdsScroll
 end
-
 btnCmdsList.MouseButton1Click:Connect(function()
 	CmdsFrame.Visible = not CmdsFrame.Visible
 end)
-
 btnFollow.MouseButton1Click:Connect(function()
 	state.Follow = not state.Follow
 	btnFollow.Text = "Follow Me: " .. (state.Follow and "ON" or "OFF")
@@ -757,11 +663,9 @@ btnFollow.MouseButton1Click:Connect(function()
 		state.CommandIssuer = LocalPlayer
 	end
 end)
-
 btnSpin.MouseButton1Click:Connect(function()
 	state.Spin = not state.Spin
 	btnSpin.Text = "Spin NPCs: " .. (state.Spin and "ON" or "OFF")
-
 	local npcs = getNPCs()
 	for _, npc in ipairs(npcs) do
 		local hrp = npc:FindFirstChild("HumanoidRootPart")
@@ -786,16 +690,13 @@ btnSpin.MouseButton1Click:Connect(function()
 		end
 	end
 end)
-
 btnChat.MouseButton1Click:Connect(function()
 	state.Chat = not state.Chat
 	btnChat.Text = "Chat Commands: " .. (state.Chat and "ON" or "OFF")
 end)
-
 btnESP.MouseButton1Click:Connect(function()
 	state.ESP = not state.ESP
 	btnESP.Text = "NPC ESP: " .. (state.ESP and "ON" or "OFF")
-
 	if not state.ESP then
 		local npcs = getNPCs()
 		for _, npc in ipairs(npcs) do
@@ -806,7 +707,6 @@ btnESP.MouseButton1Click:Connect(function()
 		end
 	end
 end)
-
 btnGossip.MouseButton1Click:Connect(function()
 	state.Gossip = not state.Gossip
 	btnGossip.Text = "Gossip Mode: " .. (state.Gossip and "ON" or "OFF")
@@ -815,7 +715,6 @@ btnAutoConnect.MouseButton1Click:Connect(function()
 	state.AutoConnect = not state.AutoConnect
 	btnAutoConnect.Text = "Auto Connect: " .. (state.AutoConnect and "ON" or "OFF")
 end)
-
 btnAntiLag.MouseButton1Click:Connect(function()
 	state.AntiLag = not state.AntiLag
 	btnAntiLag.Text = "Anti-Lag: " .. (state.AntiLag and "ON" or "OFF")
@@ -828,17 +727,13 @@ btnAntiLag.MouseButton1Click:Connect(function()
 		end
 	end
 end)
-
 local function handleCommand(player, msg)
 	if type(msg) ~= "string" then return end
 	if not state.Chat then return end
-
 	local msgLower = string.lower(msg)
-
 	if player ~= LocalPlayer then
 		local pPerms = permissions[player.UserId]
 		if not pPerms then return end
-
 		local hasPerm = false
 		for permCmd, _ in pairs(pPerms) do
 			if string.find(msgLower, permCmd) or permCmd == "all" then
@@ -848,10 +743,8 @@ local function handleCommand(player, msg)
 		end
 		if not hasPerm then return end
 	end
-
 	local args = string.split(msgLower, " ")
 	local cmd = args[1]
-
 	local isNumericFirst = tonumber(cmd) ~= nil
 	if isNumericFirst then
 		local npcId = tonumber(cmd)
@@ -893,8 +786,6 @@ local function handleCommand(player, msg)
 		end
 		return
 	end
-
-
 	if cmd == ".givecommand" and player == LocalPlayer then
 		local target = getPlayer(table.concat(args, " ", 2))
 		local permCmd = args[3]
@@ -930,7 +821,6 @@ local function handleCommand(player, msg)
 			if npc and myRoot then
 				state.RoamPoints[npc] = state.RoamPoints[npc] or {}
 				table.insert(state.RoamPoints[npc], myRoot.Position)
-				
 				state.CurrentRoamIndex[npc] = 1
 			end
 		end
@@ -1478,18 +1368,15 @@ local function handleCommand(player, msg)
 		end
 	end
 end
-
 for _, p in ipairs(Players:GetPlayers()) do
 	p.Chatted:Connect(function(msg) handleCommand(p, msg) end)
 end
 Players.PlayerAdded:Connect(function(p)
 	p.Chatted:Connect(function(msg) handleCommand(p, msg) end)
 end)
-
 local nextRandomMove = tick()
 local lastUIRefresh = tick()
 local lastAutoConnectTick = tick()
-
 RunService.Heartbeat:Connect(function()
 	pcall(function()
 		if LocalPlayer then
@@ -1503,23 +1390,18 @@ RunService.Heartbeat:Connect(function()
 			end
 		end
 	end)
-
 	local npcs = getNPCs()
 	local ownedNpcs = {}
-
 	for _, npc in ipairs(npcs) do
 		local hrp = npc:FindFirstChild("HumanoidRootPart")
 		local hum = npc:FindFirstChild("Humanoid")
-
 		if hrp then
 			local isOwned = isConnected(npc)
-
 			local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
 			local inRange = true
 			if myRoot and state.NetworkRange ~= math.huge then
 				inRange = (hrp.Position - myRoot.Position).Magnitude <= state.NetworkRange
 			end
-
 			if inRange and (isOwned or state.AutoConnect) then
 				hrp.Anchored = false
 				pcall(function()
@@ -1528,9 +1410,7 @@ RunService.Heartbeat:Connect(function()
 						hrp.AssemblyLinearVelocity = vel + Vector3.new(0, 0.001, 0)
 					end
 				end)
-
 				enforceServerOwnership(hrp)
-
 				if isOwned then
 					table.insert(ownedNpcs, npc)
 					if npcOwnershipState[npc] ~= true then
@@ -1553,7 +1433,6 @@ RunService.Heartbeat:Connect(function()
 			hum.PlatformStand = false
 		end
 	end
-
 	if state.Gossip then
 		local myRoot = LocalPlayer and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
 		if myRoot then
@@ -1590,7 +1469,6 @@ RunService.Heartbeat:Connect(function()
 			end
 		end
 	end
-
 	if state.AutoConnect and tick() - lastAutoConnectTick > 0.5 then
 		lastAutoConnectTick = tick()
 		for _, npc in ipairs(npcs) do
@@ -1604,13 +1482,11 @@ RunService.Heartbeat:Connect(function()
 			end
 		end
 	end
-
 	if state.ESP then
 		for _, npc in ipairs(npcs) do
 			local cache = npcCache[npc]
 			if cache then
 				local isConn = isConnected(npc)
-
 				local hl = npc:FindFirstChild("NPC_ESP_HL")
 				if not hl then
 					hl = Instance.new("Highlight")
@@ -1619,7 +1495,6 @@ RunService.Heartbeat:Connect(function()
 					hl.OutlineTransparency = 0
 					hl.Parent = npc
 				end
-
 				if isConn then
 					hl.FillColor = Color3.fromRGB(0, 255, 0)
 					hl.OutlineColor = Color3.fromRGB(0, 255, 0)
@@ -1627,7 +1502,6 @@ RunService.Heartbeat:Connect(function()
 					hl.FillColor = Color3.fromRGB(255, 255, 255)
 					hl.OutlineColor = Color3.fromRGB(255, 255, 255)
 				end
-
 				local hrp = npc:FindFirstChild("HumanoidRootPart") or npc:FindFirstChild("Head")
 				if hrp then
 					local bb = npc:FindFirstChild("NPC_ESP_BB")
@@ -1637,7 +1511,6 @@ RunService.Heartbeat:Connect(function()
 						bb.Size = UDim2.new(0, 100, 0, 50)
 						bb.StudsOffset = Vector3.new(0, 3, 0)
 						bb.AlwaysOnTop = true
-
 						local txt = Instance.new("TextLabel")
 						txt.Size = UDim2.new(1, 0, 1, 0)
 						txt.BackgroundTransparency = 1
@@ -1657,13 +1530,11 @@ RunService.Heartbeat:Connect(function()
 			end
 		end
 	end
-
 	if tick() - lastUIRefresh > 1 and NPCListFrame.Visible then
 		lastUIRefresh = tick()
 		for _, v in ipairs(NPCScroll:GetChildren()) do
 			if v:IsA("Frame") then v:Destroy() end
 		end
-
 		for _, npc in ipairs(npcs) do
 			local cache = npcCache[npc]
 			if cache then
@@ -1698,9 +1569,6 @@ RunService.Heartbeat:Connect(function()
 			end
 		end
 	end
-
-	
-	-- Handle Possession
 	if state.PossessedNPC and state.PossessedNPC.Parent and state.PossessedNPC:FindFirstChild("Humanoid") then
 		local myChar = LocalPlayer.Character
 		local myHum = myChar and myChar:FindFirstChild("Humanoid")
@@ -1720,8 +1588,6 @@ RunService.Heartbeat:Connect(function()
 			end
 		end
 	end
-
-	-- Handle Gojo Animations
 	local t = tick()
 	if state.BlueNPC and state.BlueNPC.Parent then
 		local hrp = state.BlueNPC:FindFirstChild("HumanoidRootPart")
@@ -1776,8 +1642,6 @@ RunService.Heartbeat:Connect(function()
 			end
 		end
 	end
-
-	-- Handle Possession
 	if state.PossessedNPC and state.PossessedNPC.Parent and state.PossessedNPC:FindFirstChild("Humanoid") then
 		local myChar = LocalPlayer.Character
 		local myHum = myChar and myChar:FindFirstChild("Humanoid")
@@ -1797,8 +1661,6 @@ RunService.Heartbeat:Connect(function()
 			end
 		end
 	end
-
-	-- Handle Gojo Animations
 	local t = tick()
 	if state.BlueNPC and state.BlueNPC.Parent then
 		local hrp = state.BlueNPC:FindFirstChild("HumanoidRootPart")
@@ -1853,12 +1715,9 @@ RunService.Heartbeat:Connect(function()
 			end
 		end
 	end
-
-	-- Global Overrides (!attack and !freeze)
 	if state.GlobalFreeze or state.GlobalAttackTarget then
 		local allNPCs = getNPCs()
 		local gTargetRoot = state.GlobalAttackTarget and state.GlobalAttackTarget.Character and state.GlobalAttackTarget.Character:FindFirstChild("HumanoidRootPart")
-		
 		for _, npc in ipairs(allNPCs) do
 			local hrp = npc:FindFirstChild("HumanoidRootPart")
 			local hum = npc:FindFirstChild("Humanoid")
@@ -1876,12 +1735,9 @@ RunService.Heartbeat:Connect(function()
 			end
 		end
 	end
-
-	-- Pre-process overrides (SpecificFollow, Roam, Mimic)
 	state.IsOverridden = {}
 	for _, npc in ipairs(ownedNpcs) do
 		local overriden = false
-		-- SpecificFollow
 		local sTarget = state.SpecificFollow[npc]
 		if sTarget and sTarget.Character then
 			local tRoot = sTarget.Character:FindFirstChild("HumanoidRootPart")
@@ -1893,7 +1749,6 @@ RunService.Heartbeat:Connect(function()
 				overriden = true
 			end
 		end
-		-- Roaming
 		local rPoints = state.RoamPoints[npc]
 		if not overriden and rPoints and #rPoints > 0 then
 			local hrp = npc:FindFirstChild("HumanoidRootPart")
@@ -1911,10 +1766,8 @@ RunService.Heartbeat:Connect(function()
 		end
 		state.IsOverridden[npc] = overriden or npc == state.BlueNPC or npc == state.RedNPC
 	end
-
 	local issuerChar = state.CommandIssuer and state.CommandIssuer.Character
 	local issuerRoot = issuerChar and issuerChar:FindFirstChild("HumanoidRootPart")
-
 	if state.Follow and issuerRoot then
 		for _, npc in ipairs(ownedNpcs) do
 			if state.IsOverridden[npc] then continue end
@@ -2001,7 +1854,6 @@ RunService.Heartbeat:Connect(function()
 					local radius = 10
 					local yOffset = math.sin(t * 3) * 5 + 10
 					local targetPos = issuerRoot.Position + Vector3.new(math.cos(angle) * radius, yOffset, math.sin(angle) * radius)
-					
 					local alignPos = hrp:FindFirstChild("MechaAlign")
 					if not alignPos then
 						local att = hrp:FindFirstChild("MechaAtt") or Instance.new("Attachment", hrp)
@@ -2055,11 +1907,9 @@ RunService.Heartbeat:Connect(function()
 				local hum = npc:FindFirstChild("Humanoid")
 				if hrp and hum then
 					hum.PlatformStand = true
-					-- Pentagon/Star angle offset
 					local angle = t_star + (i * 4 * math.pi / #ownedNpcs)
 					local radius = 15
 					local targetPos = issuerRoot.Position + Vector3.new(math.cos(angle) * radius, 5, math.sin(angle) * radius)
-					
 					local alignPos = hrp:FindFirstChild("MechaAlign")
 					if not alignPos then
 						local att = hrp:FindFirstChild("MechaAtt") or Instance.new("Attachment", hrp)
@@ -2096,11 +1946,9 @@ RunService.Heartbeat:Connect(function()
 				local hum = npc:FindFirstChild("Humanoid")
 				if hrp and hum then
 					hum.PlatformStand = true
-					-- Pentagon/Star angle offset
 					local angle = t_star + (i * 4 * math.pi / #ownedNpcs)
 					local radius = 15
 					local targetPos = issuerRoot.Position + Vector3.new(math.cos(angle) * radius, 5, math.sin(angle) * radius)
-					
 					local alignPos = hrp:FindFirstChild("MechaAlign")
 					if not alignPos then
 						local att = hrp:FindFirstChild("MechaAtt") or Instance.new("Attachment", hrp)
@@ -2386,7 +2234,6 @@ RunService.Heartbeat:Connect(function()
 			notify("Murder Mystery", "The killer has died! Innocents win!")
 			state.Mode = nil
 		end
-
 		for _, npc in ipairs(participants) do
 			if npc ~= killer and npc:FindFirstChild("Humanoid") and npc.Humanoid.Health > 0 and not isRealPlayer(npc) then
 				local hrp = npc:FindFirstChild("HumanoidRootPart")
@@ -2436,7 +2283,6 @@ RunService.Heartbeat:Connect(function()
 			end
 			gui.Lbl.Text = text
 		end
-
 		if not state.AUReportCooldown then state.AUReportCooldown = {} end
 		if not state.AUVentCooldown then state.AUVentCooldown = {} end
 		if not state.AUShapeCooldown then state.AUShapeCooldown = {} end
@@ -2444,7 +2290,6 @@ RunService.Heartbeat:Connect(function()
 		if not state.AUSheriffChase then state.AUSheriffChase = {} end
 		if not state.AUSheriffImmunity then state.AUSheriffImmunity = {} end
 		if not state.AUFooled then state.AUFooled = {} end
-
 		local participants = {}
 		for _, n in ipairs(ownedNpcs) do table.insert(participants, n) end
 		if state.JoinedRealPlayers then
@@ -2452,21 +2297,17 @@ RunService.Heartbeat:Connect(function()
 				if rp.Character then table.insert(participants, rp.Character) end
 			end
 		end
-
-		-- Update Vent CDs
 		if state.AUVents then
 			for _, v in ipairs(state.AUVents) do
 				local vcd = state.AUVentCooldown[v] and math.max(0, math.ceil(state.AUVentCooldown[v] - tick())) or 0
 				updateCD(v, "AUVentCD", vcd > 0 and "Vent: "..vcd.."s" or nil, Color3.new(0.7,0.7,0.7))
 			end
 		end
-
 		if state.AUPhase == "Playing" then
 			local imps = {}
 			local crews = {}
 			local impsAlive = 0
 			local crewsAlive = 0
-			
 			for _, npc in ipairs(participants) do
 				local hum = npc:FindFirstChild("Humanoid")
 				if hum and hum.Health > 0 then
@@ -2478,7 +2319,6 @@ RunService.Heartbeat:Connect(function()
 						table.insert(crews, npc) 
 						crewsAlive = crewsAlive + 1
 					end
-					
 					if not isRealPlayer(npc) then
 						local hl = npc:FindFirstChild("AUHighlight")
 						if not hl then
@@ -2497,11 +2337,8 @@ RunService.Heartbeat:Connect(function()
 					if hl then hl:Destroy() end
 				end
 			end
-			
 			local maxTasks = crewsAlive * 3
 			if not state.AUTaskProgress then state.AUTaskProgress = 0 end
-			
-			-- Win conditions
 			if impsAlive == 0 and #participants > 0 then
 				notify("Among Us", "Crewmates won! All imposters eliminated.")
 				state.Mode = nil
@@ -2517,9 +2354,7 @@ RunService.Heartbeat:Connect(function()
 				end
 				state.Mode = nil
 			end
-			
 			if state.Mode == nil then
-				-- Cleanup UI on win
 				for _, npc in ipairs(participants) do
 					local head = npc:FindFirstChild("Head")
 					if head then updateCD(head, "AUStatusCD", nil) end
@@ -2589,11 +2424,9 @@ RunService.Heartbeat:Connect(function()
 							else
 								text = text .. " | Shift Ready"
 							end
-							
-							-- Auto activate shapeshifter for NPCs
 							if not isRealPlayer(imp) and shifted <= 0 and shiftCd <= 0 and math.random() < 0.05 then
 								state.AUShifted[imp] = tick() + 6
-								state.AUShapeCooldown[imp] = tick() + 18 -- 6s active + 12s cooldown
+								state.AUShapeCooldown[imp] = tick() + 18
 								local numFool = math.random(1, 4)
 								for i=1, numFool do
 									if #crews > 0 then
@@ -2605,7 +2438,6 @@ RunService.Heartbeat:Connect(function()
 						updateCD(head, "AUStatusCD", text, color)
 					end
 				end
-				
 				for _, crew in ipairs(crews) do
 					local cHrp = crew:FindFirstChild("HumanoidRootPart")
 					local head = crew:FindFirstChild("Head")
@@ -2630,7 +2462,6 @@ RunService.Heartbeat:Connect(function()
 						end
 					end
 				end
-
 				if tick() - state.AULastKill > 15 then
 					for _, imp in ipairs(imps) do
 						local iHrp = imp:FindFirstChild("HumanoidRootPart")
@@ -2642,8 +2473,7 @@ RunService.Heartbeat:Connect(function()
 								local cHrp = crew:FindFirstChild("HumanoidRootPart")
 								if cHrp then
 									local immunity = state.AUSheriffImmunity[crew]
-									if immunity and tick() < immunity then continue end -- Cannot target immune sheriff
-									
+									if immunity and tick() < immunity then continue end
 									local d = (cHrp.Position - iHrp.Position).Magnitude
 									if d < nDist then nDist = d; nearest = crew end
 								end
@@ -2661,7 +2491,6 @@ RunService.Heartbeat:Connect(function()
 												if state.AURoles[otherCrew] == "Sheriff" then
 													state.AUSheriffChase[otherCrew] = {target = imp, expires = tick() + 8}
 													state.AUSheriffImmunity[otherCrew] = tick() + 6
-													-- Sheriff doesn't report immediately, they hunt
 												else
 													local rcd = state.AUReportCooldown[otherCrew] and (state.AUReportCooldown[otherCrew] - tick()) or 0
 													if rcd <= 0 then
@@ -2705,7 +2534,6 @@ RunService.Heartbeat:Connect(function()
 											state.AUMove[imp] = {tick = tick() + math.random(4, 7), type = "roam", pos = iHrp.Position + Vector3.new(math.random(-50,50), 0, math.random(-50,50))}
 										end
 									end
-									
 									local moveState = state.AUMove[imp]
 									if moveState and moveState.type == "vent" then
 										if moveState.step == 1 then
@@ -2739,7 +2567,6 @@ RunService.Heartbeat:Connect(function()
 						end
 					end
 				end
-				
 				if not state.AUMove then state.AUMove = {} end
 				for _, crew in ipairs(crews) do
 					local cHrp = crew:FindFirstChild("HumanoidRootPart")
@@ -2747,9 +2574,7 @@ RunService.Heartbeat:Connect(function()
 					if cHrp and cHum and not isRealPlayer(crew) then
 						local isSheriff = (state.AURoles[crew] == "Sheriff")
 						local chase = state.AUSheriffChase[crew]
-						
 						if isSheriff and chase and tick() < chase.expires and chase.target and chase.target:FindFirstChild("Humanoid") and chase.target.Humanoid.Health > 0 then
-							-- Sheriff chasing killer
 							local tHrp = chase.target:FindFirstChild("HumanoidRootPart")
 							if tHrp then
 								smartMoveTo(cHum, tHrp.Position)
@@ -2762,7 +2587,6 @@ RunService.Heartbeat:Connect(function()
 								end
 							end
 						else
-							-- Normal task/roam behavior
 							if not state.AUMove[crew] or tick() > state.AUMove[crew].tick then
 								if state.AUTasks and #state.AUTasks > 0 and math.random() < 0.7 then
 									local targetTask = state.AUTasks[math.random(1, #state.AUTasks)]
@@ -2771,7 +2595,6 @@ RunService.Heartbeat:Connect(function()
 									state.AUMove[crew] = {tick = tick() + math.random(4, 7), type = "roam", pos = cHrp.Position + Vector3.new(math.random(-40,40), 0, math.random(-40,40))}
 								end
 							end
-							
 							local cState = state.AUMove[crew]
 							if cState.type == "task" then
 								smartMoveTo(cHum, cState.target.Position)
@@ -2802,7 +2625,6 @@ RunService.Heartbeat:Connect(function()
 				end
 			end
 			if tick() - state.AUMeetingStart > 10 then
-				-- FREEZE COOLDOWNS BY SHIFTING TICK()
 				local duration = tick() - state.AUMeetingStart
 				state.AULastKill = state.AULastKill + duration
 				for k, v in pairs(state.AUReportCooldown) do state.AUReportCooldown[k] = v + duration end
@@ -2811,20 +2633,17 @@ RunService.Heartbeat:Connect(function()
 				for k, v in pairs(state.AUShifted) do state.AUShifted[k] = v + duration end
 				for k, v in pairs(state.AUSheriffImmunity) do state.AUSheriffImmunity[k] = v + duration end
 				for k, v in pairs(state.AUSheriffChase) do v.expires = v.expires + duration end
-
 				if mtgPart then updateCD(mtgPart, "AUMeetingCD", nil) end
 				local alive = {}
 				for _, n in ipairs(participants) do
 					if n:FindFirstChild("Humanoid") and n.Humanoid.Health > 0 then table.insert(alive, n) end
 				end
 				if #alive > 0 then
-					-- Simulated voting with Fooled logic
 					local votes = {}
 					for _, voter in ipairs(alive) do
 						local validTargets = {}
 						for _, t in ipairs(alive) do
 							if state.AUFooled and state.AUFooled[voter] and state.AURoles[t] == "Shapeshifter" then
-								-- Fooled! Can't vote shapeshifter
 							else
 								table.insert(validTargets, t)
 							end
@@ -2834,7 +2653,6 @@ RunService.Heartbeat:Connect(function()
 							votes[pick] = (votes[pick] or 0) + 1
 						end
 					end
-					
 					local maxV = -1
 					local victim = nil
 					for t, v in pairs(votes) do
@@ -2843,7 +2661,6 @@ RunService.Heartbeat:Connect(function()
 							victim = t
 						end
 					end
-					
 					if victim then
 						local vHum = victim:FindFirstChild("Humanoid")
 						if vHum then vHum.Health = 0 end
@@ -2855,7 +2672,6 @@ RunService.Heartbeat:Connect(function()
 				state.AUPhase = "Playing"
 			end
 		end
-
 	elseif state.Mode == "KillNPC" and state.KillTargetNPC then		if targetRoot and targetHum and targetHum.Health > 0 then
 			local com = Vector3.new(0,0,0)
 			local acount = 0
@@ -3076,7 +2892,6 @@ RunService.Heartbeat:Connect(function()
 			end
 		end
 	end
-
 	if state.Mode == "Sit" then
 		for _, npc in ipairs(ownedNpcs) do
 			local hum = npc:FindFirstChild("Humanoid")
@@ -3099,7 +2914,6 @@ RunService.Heartbeat:Connect(function()
 						end
 					end
 				end
-
 				if closestRoot then
 					local gyro = hrp:FindFirstChild("LookAtGyro")
 					if not gyro then
@@ -3122,17 +2936,12 @@ RunService.Heartbeat:Connect(function()
 			end
 		end
 	end
-
-	
-	-- Self Defense & Fling Logic
 	for _, npc in ipairs(ownedNpcs) do
 		local hrp = npc:FindFirstChild("HumanoidRootPart")
 		if hrp then
 			local isFlingMode = (state.Mode == "Fling")
 			local shouldFling = state.SelfDefense or isFlingMode
-			
 			if shouldFling then
-				-- We apply fling velocity directly inside heartbeat to ensure physics replication
 				local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
 				for _, p in ipairs(Players:GetPlayers()) do
 					if p ~= LocalPlayer and p.Character then
@@ -3140,7 +2949,6 @@ RunService.Heartbeat:Connect(function()
 						local hum = p.Character:FindFirstChild("Humanoid")
 						if tRoot and hum and hum.Health > 0 then
 							if (hrp.Position - tRoot.Position).Magnitude < 4 then
-								-- Fling them
 								hrp.Velocity = Vector3.new(0, 15000, 0)
 								hrp.RotVelocity = Vector3.new(15000, 15000, 15000)
 							end
@@ -3150,8 +2958,6 @@ RunService.Heartbeat:Connect(function()
 			end
 		end
 	end
-
-	-- NanFling Mode
 	if state.Mode == "NanFling" and state.NanFlingTarget and state.NanFlingTarget.Character then
 		local tRoot = state.NanFlingTarget.Character:FindFirstChild("HumanoidRootPart")
 		if tRoot then
@@ -3160,13 +2966,12 @@ RunService.Heartbeat:Connect(function()
 				if hrp then
 					hrp.CanCollide = false
 					hrp.CFrame = tRoot.CFrame
-					hrp.Velocity = Vector3.new(0/0, 0/0, 0/0) -- NaN velocity forces extreme physics recalculation / fling
+					hrp.Velocity = Vector3.new(0/0, 0/0, 0/0)
 					hrp.RotVelocity = Vector3.new(9e9, 9e9, 9e9)
 				end
 			end
 		end
 	end
-
 	if state.Mode == "Attack" and state.CurrentTarget and state.CurrentTarget.Character then
 			targetRoot = state.CurrentTarget.Character:FindFirstChild("HumanoidRootPart")
 		elseif state.Mode == "Pathfind" and state.PathfindTarget and state.PathfindTarget.Character then
@@ -3182,7 +2987,6 @@ RunService.Heartbeat:Connect(function()
 						local hrp = npc:FindFirstChild("HumanoidRootPart")
 						if hrp then
 							hum:MoveTo(wp.Position)
-
 							local lookDir = hrp.CFrame.LookVector
 							local ray = Ray.new(hrp.Position, lookDir * 4)
 							local hit, pos = workspace:FindPartOnRay(ray, npc)
@@ -3193,7 +2997,6 @@ RunService.Heartbeat:Connect(function()
 									hum.Jump = true
 								end
 							end
-
 							if (hrp.Position - wp.Position).Magnitude < 3 then
 								cache.currentWaypoint = cache.currentWaypoint + 1
 							end
@@ -3228,11 +3031,9 @@ RunService.Heartbeat:Connect(function()
 			end
 		end
 	end
-
 	if state.Mode == "Arise" and tick() > nextRandomMove then
 		nextRandomMove = tick() + math.random(2, 5)
 	end
-
 	for _, npc in ipairs(ownedNpcs) do
 		if state.StayingNPCs[npc] then
 			local hum = npc:FindFirstChild("Humanoid")
@@ -3245,26 +3046,21 @@ RunService.Heartbeat:Connect(function()
 		end
 	end
 end)
-
 local UserInputService = game:GetService("UserInputService")
-
 local function makeDraggable(frame)
 	local dragging
 	local dragInput
 	local dragStart
 	local startPos
-
 	local function update(input)
 		local delta = input.Position - dragStart
 		frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
 	end
-
 	frame.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 			dragging = true
 			dragStart = input.Position
 			startPos = frame.Position
-
 			input.Changed:Connect(function()
 				if input.UserInputState == Enum.UserInputState.End then
 					dragging = false
@@ -3272,36 +3068,29 @@ local function makeDraggable(frame)
 			end)
 		end
 	end)
-
 	frame.InputChanged:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
 			dragInput = input
 		end
 	end)
-
 	UserInputService.InputChanged:Connect(function(input)
 		if input == dragInput and dragging then
 			update(input)
 		end
 	end)
 end
-
 makeDraggable(MainFrame)
 makeDraggable(BubbleFrame)
-
 local PathfindingService = game:GetService("PathfindingService")
-
 task.spawn(function()
 	while task.wait(0.5) do
 		if not state.AutoConnect then continue end
 		local npcs = getNPCs()
 		local targetRoot = nil
-
 		if state.Mode == "Attack" and state.CurrentTarget and state.CurrentTarget.Character then
 			elseif state.Follow and state.CommandIssuer and state.CommandIssuer.Character then
 			targetRoot = state.CommandIssuer.Character:FindFirstChild("HumanoidRootPart")
 		end
-
 		if targetRoot then
 			for _, npc in ipairs(npcs) do
 				local hrp = npc:FindFirstChild("HumanoidRootPart")
@@ -3313,7 +3102,6 @@ task.spawn(function()
 						local ray = Ray.new(hrp.Position, (targetRoot.Position - hrp.Position).Unit * dist)
 						local hit, pos = workspace:FindPartOnRayWithIgnoreList(ray, {npc, targetRoot.Parent})
 						if hit and not hit.CanCollide then hit = nil end
-
 						if hit then
 							local path = PathfindingService:CreatePath({
 								AgentRadius = 2,
