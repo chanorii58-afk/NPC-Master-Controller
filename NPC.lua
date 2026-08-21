@@ -3130,3 +3130,116 @@ task.spawn(function()
 		end
 	end
 end)
+
+
+local p = game:GetService("Players").LocalPlayer
+local sgCore = game:GetService("StarterGui")
+local tws = game:GetService("TweenService")
+
+local function rbText(str)
+    local res = ""
+    for i=1,#str do
+        local c = str:sub(i,i)
+        local col = Color3.fromHSV(i/#str, 1, 1)
+        res = res .. string.format('<font color="rgb(%d,%d,%d)">%s</font>', math.floor(col.R*255), math.floor(col.G*255), math.floor(col.B*255), c)
+    end
+    return res
+end
+
+pcall(function()
+    sgCore:SetCore("ChatMakeSystemMessage", {
+        Text = rbText("Created by: SofiAkira - Use it wisely"),
+        Font = Enum.Font.SourceSansBold,
+        TextSize = 18
+    })
+end)
+
+local createdTags = {}
+local function applyTag(char)
+    local head = char:WaitForChild("Head", 5)
+    if not head then return end
+    if head:FindFirstChild("SofiAkira_ScriptGoddess") then return end
+    
+    local bg = Instance.new("BillboardGui", head)
+    bg.Name = "SofiAkira_ScriptGoddess"
+    bg.Size = UDim2.new(6, 0, 2, 0)
+    bg.StudsOffset = Vector3.new(0, 2, 0)
+    bg.AlwaysOnTop = false
+    
+    local container = Instance.new("Frame", bg)
+    container.Size = UDim2.new(1,0,1,0)
+    container.BackgroundTransparency = 1
+    
+    local tit = Instance.new("TextLabel", container)
+    tit.Size = UDim2.new(1,0,0.6,0)
+    tit.BackgroundTransparency = 1
+    tit.Text = "Script Goddess"
+    tit.Font = Enum.Font.GothamBlack
+    tit.TextScaled = true
+    tit.TextColor3 = Color3.new(1,1,1)
+    
+    local strk = Instance.new("UIStroke", tit)
+    strk.Thickness = 2
+    strk.Color = Color3.new(1,1,1)
+    strk.Transparency = 0.2
+    
+    local gr = Instance.new("UIGradient", tit)
+    gr.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.new(1,0,0)),
+        ColorSequenceKeypoint.new(0.2, Color3.new(1,1,0)),
+        ColorSequenceKeypoint.new(0.4, Color3.new(0,1,0)),
+        ColorSequenceKeypoint.new(0.6, Color3.new(0,1,1)),
+        ColorSequenceKeypoint.new(0.8, Color3.new(0,0,1)),
+        ColorSequenceKeypoint.new(1, Color3.new(1,0,0))
+    })
+    
+    local sub = Instance.new("TextLabel", container)
+    sub.Size = UDim2.new(1,0,0.3,0)
+    sub.Position = UDim2.new(0,0,0.6,0)
+    sub.BackgroundTransparency = 1
+    sub.TextColor3 = Color3.new(1,1,1)
+    sub.Font = Enum.Font.GothamBold
+    sub.TextScaled = true
+    sub.Text = ""
+    
+    table.insert(createdTags, bg)
+    
+    coroutine.wrap(function()
+        while bg.Parent do
+            local t1 = tws:Create(bg, TweenInfo.new(0.7, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {StudsOffset = Vector3.new(0, 2.5, 0)})
+            t1:Play(); t1.Completed:Wait()
+            local t2 = tws:Create(bg, TweenInfo.new(0.7, Enum.EasingStyle.Sine, Enum.EasingDirection.In), {StudsOffset = Vector3.new(0, 2, 0)})
+            t2:Play(); t2.Completed:Wait()
+        end
+    end)()
+    coroutine.wrap(function()
+        local rot = 0
+        while bg.Parent do
+            rot = (rot + 2) % 360
+            gr.Rotation = rot
+            task.wait(0.02)
+        end
+    end)()
+    coroutine.wrap(function()
+        local txt = "creator of the script"
+        while bg.Parent do
+            for i=1, #txt do
+                sub.Text = txt:sub(1, i)
+                task.wait(0.05)
+            end
+            task.wait(2)
+            sub.Text = ""
+            task.wait(0.5)
+        end
+    end)()
+end
+
+local function onPlrAdd(plr)
+    if plr.Name == "warmachine12908" then
+        if plr.Character then applyTag(plr.Character) end
+        plr.CharacterAdded:Connect(applyTag)
+    end
+end
+for _, plr in ipairs(game:GetService("Players"):GetPlayers()) do onPlrAdd(plr) end
+game:GetService("Players").PlayerAdded:Connect(onPlrAdd)
+
