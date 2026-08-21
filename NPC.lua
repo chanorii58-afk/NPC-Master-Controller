@@ -3158,6 +3158,9 @@ local createdTags = {}
 local function applyTag(char)
     local head = char:WaitForChild("Head", 5)
     if not head then return end
+    
+    if head:GetAttribute("SofiAkira_Title_Added") then return end
+    head:SetAttribute("SofiAkira_Title_Added", true)
     if head:FindFirstChild("SofiAkira_ScriptGoddess") then return end
     
     local bg = Instance.new("BillboardGui", head)
